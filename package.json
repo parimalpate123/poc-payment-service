@@ -1,0 +1,17 @@
+{
+  "name": "poc-payment-service",
+  "version": "1.0.0",
+  "description": "POC payment service for auto-remediation testing",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/index.js"
+  },
+  "keywords": ["poc", "payment", "service"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {}
+}
