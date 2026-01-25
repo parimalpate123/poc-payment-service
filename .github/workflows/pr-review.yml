@@ -85,11 +85,13 @@ jobs:
                   title = pr_data.get('title', '')
                   
                   # Try to extract from PR title first (format: "... - chat-xxx" or "Incident: chat-xxx")
-                  title_match = re.search(r'(?:Incident(?: ID)?:\s*|-\s*)([a-z0-9-]+)', title, re.IGNORECASE)
+                  # Look for pattern: " - chat-xxx" or "Incident: chat-xxx" or "Incident ID: chat-xxx"
+                  title_match = re.search(r'(?:Incident(?: ID)?:\s*|-\s+)(chat-[a-z0-9-]+)', title, re.IGNORECASE)
                   if title_match:
                       incident_id = title_match.group(1)
                       # Validate it looks like an incident ID (starts with 'chat-' and has format)
                       if incident_id.startswith('chat-') and len(incident_id) > 10:
+                          print(f"Found incident ID in title: {incident_id}", file=sys.stderr)
                           print(incident_id)
                           sys.exit(0)
                   
@@ -135,13 +137,28 @@ jobs:
 
           if [ -z "$INCIDENT_ID" ]; then
             echo "⚠️ No incident ID found in PR or linked issue. This PR may not be from Issue Agent."
+            echo "PR Title: ${{ github.event.pull_request.title }}"
+            echo "PR Number: $PR_NUMBER"
             echo "Skipping PR Review Agent workflow."
+            # Set empty output so subsequent steps are skipped
+            echo "incident_id=" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "Extracted incident_id: $INCIDENT_ID, PR: $PR_NUMBER"
+          echo "✅ Extracted incident_id: $INCIDENT_ID, PR: $PR_NUMBER"
+
+      - name: Debug - Show extracted values
+        run: |
+          echo "🔍 Extracted incident_id: '${{ steps.extract_info.outputs.incident_id }}'"
+          echo "🔍 Extracted pr_number: '${{ steps.extract_info.outputs.pr_number }}'"
+          if [ -z "${{ steps.extract_info.outputs.incident_id }}" ]; then
+            echo "⚠️ WARNING: incident_id is empty - subsequent steps will be skipped"
+          else
+            echo "✅ incident_id found - proceeding with PR review"
+          fi
 
       - name: Notify webhook - Review started
         if: steps.extract_info.outputs.incident_id != ''

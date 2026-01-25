@@ -13,11 +13,18 @@ on:
 jobs:
   analyze-and-fix:
     runs-on: ubuntu-latest
-    # Only run if issue has 'auto-fix' label or was created by bot
+    # Only run if:
+    # 1. Issue was opened AND already has 'auto-fix' label (or created by bot)
+    # 2. Issue was labeled AND the label added is 'auto-fix'
+    # 3. Manual trigger via workflow_dispatch
     if: |
-      contains(github.event.issue.labels.*.name, 'auto-fix') ||
-      github.event.issue.user.type == 'Bot' ||
-      github.event_name == 'workflow_dispatch'
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.action == 'opened' && (
+        contains(github.event.issue.labels.*.name, 'auto-fix') ||
+        github.event.issue.user.type == 'Bot'
+      )) ||
+      (github.event_name == 'issues' && github.event.action == 'labeled' && 
+       github.event.label.name == 'auto-fix')
 
     permissions:
       contents: write
