@@ -82,6 +82,16 @@ jobs:
               with urllib.request.urlopen(req) as response:
                   pr_data = json.loads(response.read())
                   body = pr_data.get('body', '')
+                  title = pr_data.get('title', '')
+                  
+                  # Try to extract from PR title first (format: "... - chat-xxx" or "Incident: chat-xxx")
+                  title_match = re.search(r'(?:Incident(?: ID)?:\s*|-\s*)([a-z0-9-]+)', title, re.IGNORECASE)
+                  if title_match:
+                      incident_id = title_match.group(1)
+                      # Validate it looks like an incident ID (starts with 'chat-' and has format)
+                      if incident_id.startswith('chat-') and len(incident_id) > 10:
+                          print(incident_id)
+                          sys.exit(0)
                   
                   # Try to extract from PR body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
                   match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
