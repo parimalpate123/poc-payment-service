@@ -110,7 +110,7 @@ jobs:
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
             -d "$JSON_PAYLOAD" 2>/dev/null || true
 
-      - name: Run Issue Agent - Step 1: Analysis
+      - name: Run Issue Agent Step 1 Analysis
         env:
           BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20240620-v1:0' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
