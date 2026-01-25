@@ -18,37 +18,37 @@ jobs:
       contains(github.event.issue.labels.*.name, 'auto-fix') ||
       github.event.issue.user.type == 'Bot' ||
       github.event_name == 'workflow_dispatch'
-    
+
     permissions:
       contents: write
       pull-requests: write
       issues: write
       id-token: write  # Required for AWS Bedrock OIDC authentication
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # Full history for better code analysis
-      
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           # Note: cache removed because service repos don't have requirements.txt
-      
+
       - name: Install Issue Agent
         run: |
           git clone https://github.com/parimalpate123/issue-fix-action.git /tmp/issue-fix-action
           cd /tmp/issue-fix-action
           pip install -r requirements.txt
-      
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-      
+
       - name: Extract incident ID
         id: extract_incident
         env:
@@ -63,25 +63,25 @@ jobs:
           import re
           import sys
           import urllib.request
-          
+
           try:
               token = os.environ.get('GITHUB_TOKEN')
               issue_num = os.environ.get('ISSUE_NUMBER', '')
               repo = os.environ.get('GITHUB_REPOSITORY', '')
-              
+
               if not token or not issue_num or not repo:
                   print(f"Missing env vars: token={bool(token)}, issue_num={bool(issue_num)}, repo={bool(repo)}", file=sys.stderr)
                   sys.exit(1)
-              
+
               url = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
               req = urllib.request.Request(url)
               req.add_header('Authorization', f'token {token}')
               req.add_header('Accept', 'application/vnd.github.v3+json')
-              
+
               with urllib.request.urlopen(req) as response:
                   issue_data = json.loads(response.read())
                   body = issue_data.get('body', '')
-                  
+
                   # Try to extract from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
                   match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
                   if match:
@@ -89,14 +89,14 @@ jobs:
                       sys.exit(0)
           except Exception as e:
               print(f"Error: {e}", file=sys.stderr)
-          
+
           sys.exit(1)
           PYTHON_EOF
           ) || echo ""
-          
+
           echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
           echo "Extracted incident_id: $INCIDENT_ID"
-      
+
       - name: Notify webhook - Analysis started
         if: steps.extract_incident.outputs.incident_id != ''
         env:
@@ -113,7 +113,7 @@ jobs:
               \"status\": \"analysis_started\",
               \"message\": \"Issue Agent is analyzing the issue and identifying the root cause...\"
             }" 2>/dev/null || true
-      
+
       - name: Run Issue Agent - Step 1: Analysis
         env:
           BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20240620-v1:0' }}
@@ -125,7 +125,7 @@ jobs:
             --issue-number $ISSUE_NUMBER \
             --repo $REPOSITORY \
             --output-dir ./agent-output
-      
+
       - name: Notify webhook - Fix generation started
         if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/analysis.json') != ''
         env:
@@ -142,7 +142,7 @@ jobs:
               \"status\": \"fix_generation_started\",
               \"message\": \"Issue Agent has identified the fix. Generating code changes...\"
             }" 2>/dev/null || true
-      
+
       - name: Notify webhook - PR creation started
         if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/fix_result.json') != ''
         env:
@@ -159,7 +159,7 @@ jobs:
               \"status\": \"pr_creation_started\",
               \"message\": \"Code changes generated. Creating pull request...\"
             }" 2>/dev/null || true
-      
+
       - name: Notify webhook - PR created
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
         env:
@@ -169,9 +169,9 @@ jobs:
           PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
           PR_URL=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_url', ''))" 2>/dev/null || echo "")
           ISSUE_NUMBER=${{ github.event.issue.number || github.event.inputs.issue_number }}
-          
+
           echo "Notifying webhook for incident: ${{ steps.extract_incident.outputs.incident_id }}, PR: $PR_NUMBER"
-          
+
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
@@ -184,7 +184,7 @@ jobs:
               \"pr_url\": \"$PR_URL\",
               \"status\": \"pr_created\"
             }" || echo "Webhook call failed (non-critical)"
-      
+
       - name: Comment on issue
         if: always() && hashFiles('agent-output/analysis.json') != ''
         env:
@@ -199,7 +199,7 @@ jobs:
           else
             echo "update_issue_comment.py not found, skipping issue comment update"
           fi
-      
+
       - name: Upload agent logs
         if: always()
         uses: actions/upload-artifact@v4
