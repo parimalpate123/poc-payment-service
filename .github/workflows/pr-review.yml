@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     
-    # Always run for pull_request events (the 'on:' section already filters for opened/synchronize/reopened)
+    # No condition needed for pull_request events - the 'on:' section already filters for opened/synchronize/reopened
     # The extraction step will verify if PR is from Issue Agent and exit early if not
     # For issue_comment events, only run if @pragent is mentioned
     if: |
