@@ -144,6 +144,46 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "✅ Extracted: incident_id=$INCIDENT_ID, pr=$PR_NUMBER"
 
+      - name: Post @pragent comment to trigger action
+        if: steps.extract_info.outputs.incident_id != '' && github.event_name != 'issue_comment'
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Post comment with @pragent to trigger issue_comment event
+          # This will cause the workflow to re-run with issue_comment event, where the action can detect @pragent
+          python3 << 'PYTHON_EOF'
+          import json, os, sys, urllib.request
+          
+          token = os.environ.get('GITHUB_TOKEN')
+          pr_num = os.environ.get('PR_NUMBER', '')
+          repo = os.environ.get('GITHUB_REPOSITORY', '')
+          
+          if not all([token, pr_num, repo]):
+              print("Missing env vars", file=sys.stderr)
+              sys.exit(1)
+          
+          try:
+              # PRs are also issues, so we can comment on the PR
+              comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
+              comment_body = "@pragent review this PR and provide recommendations"
+              comment_data = json.dumps({"body": comment_body}).encode('utf-8')
+              
+              req = urllib.request.Request(comment_url, data=comment_data, method='POST')
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+              req.add_header('Content-Type', 'application/json')
+              
+              with urllib.request.urlopen(req) as r:
+                  result = json.loads(r.read())
+                  print(f"✅ Posted @pragent comment on PR #{pr_num}")
+                  print(f"💡 This will trigger the workflow again via issue_comment event")
+          except Exception as e:
+              print(f"Error posting comment: {e}", file=sys.stderr)
+              sys.exit(1)
+          PYTHON_EOF
+
       - name: Notify webhook - Review started
         if: steps.extract_info.outputs.incident_id != ''
         env:
@@ -156,7 +196,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -H "X-Webhook-Token: $WEBHOOK_SECRET" -d @/tmp/payload.json 2>/dev/null || true
 
       - name: Run PR Review Agent
-        if: steps.extract_info.outputs.incident_id != ''
+        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment'
         uses: parimalpate123/pr-code-review-action@justbedrock
         with:
           github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
