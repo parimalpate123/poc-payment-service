@@ -174,7 +174,7 @@ jobs:
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
             -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
 
-      - name: Trigger PR Review Agent
+      - name: Notify - PR Review Agent will trigger automatically
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -184,15 +184,15 @@ jobs:
           PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
           
           if [ -z "$PR_NUMBER" ]; then
-            echo "⚠️ PR number not found in pr_result.json, skipping PR Review Agent trigger"
+            echo "⚠️ PR number not found in pr_result.json"
             exit 0
           fi
           
-          echo "🔔 Triggering PR Review Agent workflow directly via workflow_dispatch for PR #$PR_NUMBER"
+          echo "✅ PR #$PR_NUMBER created successfully"
+          echo "ℹ️  PR Review Agent workflow should trigger automatically on PR open event"
+          echo "ℹ️  If it doesn't trigger, check that the workflow file is on the main branch"
           
-          # Trigger PR Review Agent workflow directly using workflow_dispatch API
-          # This bypasses the issue_comment event limitation with bot comments
-          export PR_NUMBER="$PR_NUMBER"
+          # Post a comment for visibility (non-blocking)
           python3 << 'PYTHON_EOF'
           import json
           import os
@@ -203,69 +203,12 @@ jobs:
               token = os.environ.get('GITHUB_TOKEN')
               pr_num = os.environ.get('PR_NUMBER', '')
               repo = os.environ.get('GITHUB_REPOSITORY', '')
-
-              print(f"Debug: token={bool(token)}, pr_num={pr_num}, repo={repo}", file=sys.stderr)
-
-              if not token or not pr_num or not repo:
-                  print(f"Missing env vars: token={bool(token)}, pr_num={bool(pr_num)}, repo={bool(repo)}", file=sys.stderr)
-                  sys.exit(1)
-
-              # Trigger the PR Review Agent workflow via workflow_dispatch
-              workflow_dispatch_url = f"https://api.github.com/repos/{repo}/actions/workflows/pr-review.yml/dispatches"
-              
-              # Prepare the request payload
-              payload = {
-                  "ref": "main",  # or "master" depending on your default branch
-                  "inputs": {
-                      "pr_number": str(pr_num)
-                  }
-              }
-              
-              payload_data = json.dumps(payload).encode('utf-8')
-              
-              req = urllib.request.Request(workflow_dispatch_url, data=payload_data, method='POST')
-              req.add_header('Authorization', f'token {token}')
-              req.add_header('Accept', 'application/vnd.github.v3+json')
-              req.add_header('Content-Type', 'application/json')
-
-              with urllib.request.urlopen(req) as response:
-                  if response.status == 204:
-                      print(f"✅ PR Review Agent workflow triggered successfully for PR #{pr_num}")
-                      print(f"✅ Workflow will run via workflow_dispatch with pr_number={pr_num}")
-                      sys.exit(0)
-                  else:
-                      response_data = response.read()
-                      print(f"⚠️ Unexpected response: {response.status} - {response_data}", file=sys.stderr)
-                      sys.exit(1)
-          except urllib.error.HTTPError as e:
-              error_body = e.read().decode('utf-8') if e.fp else 'No error body'
-              print(f"HTTP Error {e.code}: {error_body}", file=sys.stderr)
-              sys.exit(1)
-          except Exception as e:
-              print(f"Error triggering workflow: {e}", file=sys.stderr)
-              import traceback
-              traceback.print_exc()
-              sys.exit(1)
-          PYTHON_EOF
-          
-          # Also post a comment for visibility (non-blocking)
-          echo "📝 Posting comment on PR for visibility..."
-          python3 << 'PYTHON_EOF'
-          import json
-          import os
-          import sys
-          import urllib.request
-
-          try:
-              token = os.environ.get('GITHUB_TOKEN')
-              pr_num = os.environ.get('PR_NUMBER', '')
-              repo = os.environ.get('GITHUB_REPOSITORY', '')
-              comment_body = "🤖 PR Review Agent has been triggered automatically."
+              comment_body = "✅ PR created. PR Review Agent will review this PR automatically."
 
               if not token or not pr_num or not repo:
-                  sys.exit(0)  # Non-blocking, just exit if we can't post
+                  sys.exit(0)  # Non-blocking
 
-              # Get PR details to find the issue number (PRs are also issues)
+              # Get PR details
               pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}"
               req = urllib.request.Request(pr_url)
               req.add_header('Authorization', f'token {token}')
@@ -275,7 +218,7 @@ jobs:
                   pr_data = json.loads(response.read())
                   issue_number = pr_data.get('number')
 
-              # Post comment on the PR
+              # Post comment
               comment_url = f"https://api.github.com/repos/{repo}/issues/{issue_number}/comments"
               comment_data = json.dumps({"body": comment_body}).encode('utf-8')
               
@@ -285,9 +228,9 @@ jobs:
               req_comment.add_header('Content-Type', 'application/json')
 
               with urllib.request.urlopen(req_comment) as response:
-                  print(f"✅ Comment posted: PR Review Agent triggered")
+                  print(f"✅ Comment posted on PR #$pr_num")
           except Exception:
-              pass  # Ignore errors for comment posting
+              pass  # Ignore errors
           PYTHON_EOF
 
       - name: Comment on issue
