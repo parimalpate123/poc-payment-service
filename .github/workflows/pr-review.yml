@@ -61,8 +61,8 @@ jobs:
           repo = os.environ.get('GITHUB_REPOSITORY', '')
           
           if not all([token, pr_num, repo]):
-              print("", file=sys.stderr)
-              sys.exit(0)  # Exit 0, just print nothing
+              print("⚠️ Missing required env vars", file=sys.stderr)
+              sys.exit(0)
           
           try:
               # Get PR data
@@ -76,15 +76,20 @@ jobs:
                   title = pr.get('title', '')
                   body = pr.get('body', '')
                   
-                  # Try title: "... - chat-xxx"
+                  print(f"🔍 PR Title: {title[:100]}", file=sys.stderr)
+                  print(f"🔍 PR Body preview: {body[:200]}", file=sys.stderr)
+                  
+                  # Try title: "... - chat-xxx" or "FIX: ... - chat-xxx"
                   m = re.search(r'-\s+(chat-[a-z0-9-]+)', title, re.I)
                   if m and m.group(1).startswith('chat-'):
+                      print(f"✅ Found incident ID in title: {m.group(1)}", file=sys.stderr)
                       print(m.group(1))
                       sys.exit(0)
                   
-                  # Try body: "Incident: chat-xxx"
+                  # Try body: "Incident: chat-xxx" or "Incident ID: chat-xxx"
                   m = re.search(r'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)', body, re.I)
                   if m:
+                      print(f"✅ Found incident ID in body: {m.group(1)}", file=sys.stderr)
                       print(m.group(1))
                       sys.exit(0)
                   
@@ -92,6 +97,7 @@ jobs:
                   issue_url = pr.get('issue_url', '')
                   if issue_url:
                       issue_num = issue_url.split('/')[-1]
+                      print(f"🔍 Checking linked issue #{issue_num}", file=sys.stderr)
                       issue_req = urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{issue_num}")
                       issue_req.add_header('Authorization', f'token {token}')
                       issue_req.add_header('Accept', 'application/vnd.github.v3+json')
@@ -99,22 +105,33 @@ jobs:
                       with urllib.request.urlopen(issue_req) as ir:
                           issue = json.loads(ir.read())
                           labels = [l.get('name') for l in issue.get('labels', [])]
+                          issue_body = issue.get('body', '')
+                          
+                          print(f"🔍 Issue labels: {labels}", file=sys.stderr)
+                          print(f"🔍 Issue body preview: {issue_body[:200]}", file=sys.stderr)
                           
                           if 'auto-fix' in labels:
-                              m = re.search(r'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)', issue.get('body', ''), re.I)
+                              m = re.search(r'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)', issue_body, re.I)
                               if m:
+                                  print(f"✅ Found incident ID in linked issue: {m.group(1)}", file=sys.stderr)
                                   print(m.group(1))
                                   sys.exit(0)
+                          else:
+                              print("⚠️ Linked issue does not have 'auto-fix' label", file=sys.stderr)
           except Exception as e:
-              print(f"Error: {e}", file=sys.stderr)
+              print(f"❌ Error: {e}", file=sys.stderr)
+              import traceback
+              traceback.print_exc(file=sys.stderr)
           
           # Not found - exit with 0, print nothing
+          print("⚠️ No incident ID found in PR title, body, or linked issue", file=sys.stderr)
           sys.exit(0)
           PYTHON_EOF
           ) || INCIDENT_ID=""
           
           if [ -z "$INCIDENT_ID" ]; then
             echo "⚠️ No incident ID found in PR #$PR_NUMBER. This PR may not be from Issue Agent."
+            echo "💡 Check the logs above to see what was searched."
             echo "incident_id=" >> $GITHUB_OUTPUT
             echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             exit 0
