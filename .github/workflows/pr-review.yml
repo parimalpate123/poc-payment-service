@@ -52,6 +52,9 @@ jobs:
           
           echo "🔍 PR Number: $PR_NUMBER"
           
+          # Export PR_NUMBER so Python script can access it
+          export PR_NUMBER
+          
           # Extract incident ID from PR (exit with 0 even if not found, just print empty)
           INCIDENT_ID=$(python3 << 'PYTHON_EOF'
           import json, os, re, sys, urllib.request
