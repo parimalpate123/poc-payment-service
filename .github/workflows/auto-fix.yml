@@ -104,7 +104,7 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(printf '{"action":"remediation_webhook","source":"github_actions","incident_id":"%s","status":"analysis_started","message":"Issue Agent is analyzing the issue and identifying the root cause"}' "$INCIDENT_ID")
+          JSON_PAYLOAD=$(python3 -c "import json; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':'$INCIDENT_ID','status':'analysis_started','message':'Issue Agent is analyzing the issue and identifying the root cause'}))")
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
@@ -129,7 +129,7 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(printf '{"action":"remediation_webhook","source":"github_actions","incident_id":"%s","status":"fix_generation_started","message":"Issue Agent has identified the fix. Generating code changes"}' "$INCIDENT_ID")
+          JSON_PAYLOAD=$(python3 -c "import json; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':'$INCIDENT_ID','status':'fix_generation_started','message':'Issue Agent has identified the fix. Generating code changes'}))")
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
@@ -142,7 +142,7 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(printf '{"action":"remediation_webhook","source":"github_actions","incident_id":"%s","status":"pr_creation_started","message":"Code changes generated. Creating pull request"}' "$INCIDENT_ID")
+          JSON_PAYLOAD=$(python3 -c "import json; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':'$INCIDENT_ID','status':'pr_creation_started','message':'Code changes generated. Creating pull request'}))")
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
@@ -161,7 +161,7 @@ jobs:
 
           echo "Notifying webhook for incident: $INCIDENT_ID, PR: $PR_NUMBER"
 
-          JSON_PAYLOAD=$(printf '{"action":"remediation_webhook","source":"github_actions","incident_id":"%s","issue_number":%s,"pr_number":%s,"pr_url":"%s","status":"pr_created"}' "$INCIDENT_ID" "$ISSUE_NUMBER" "$PR_NUMBER" "$PR_URL")
+          JSON_PAYLOAD=$(python3 -c "import json; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':'$INCIDENT_ID','issue_number':$ISSUE_NUMBER,'pr_number':$PR_NUMBER,'pr_url':'$PR_URL','status':'pr_created'}))")
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
