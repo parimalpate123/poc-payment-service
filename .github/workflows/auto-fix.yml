@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          # Note: cache removed because service repos don't have requirements.txt
       
       - name: Install Issue Agent
         run: |
@@ -116,14 +116,19 @@ jobs:
           fi
       
       - name: Comment on issue
-        if: always()
+        if: always() && hashFiles('agent-output/analysis.json') != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python /tmp/issue-fix-action/src/utils/update_issue_comment.py \
-            --issue-number ${{ github.event.issue.number || github.event.inputs.issue_number }} \
-            --repo ${{ github.repository }} \
-            --status-dir ./agent-output
+          # Check if update_issue_comment.py exists before running
+          if [ -f "/tmp/issue-fix-action/src/utils/update_issue_comment.py" ]; then
+            python /tmp/issue-fix-action/src/utils/update_issue_comment.py \
+              --issue-number ${{ github.event.issue.number || github.event.inputs.issue_number }} \
+              --repo ${{ github.repository }} \
+              --status-dir ./agent-output
+          else
+            echo "update_issue_comment.py not found, skipping issue comment update"
+          fi
       
       - name: Upload agent logs
         if: always()
