@@ -104,11 +104,11 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"analysis_started","message":"Issue Agent is analyzing the issue and identifying the root cause"}))')
+          python3 -c "import json, os; print(json.dumps({'action': 'remediation_webhook', 'source': 'github_actions', 'incident_id': os.environ['INCIDENT_ID'], 'status': 'analysis_started', 'message': 'Issue Agent is analyzing the issue and identifying the root cause'}))" > /tmp/webhook_payload.json
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "$JSON_PAYLOAD" 2>/dev/null || true
+            -d @/tmp/webhook_payload.json 2>/dev/null || true
 
       - name: Run Issue Agent - Step 1: Analysis
         env:
@@ -129,11 +129,11 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"fix_generation_started","message":"Issue Agent has identified the fix. Generating code changes"}))')
+          python3 -c "import json, os; print(json.dumps({'action': 'remediation_webhook', 'source': 'github_actions', 'incident_id': os.environ['INCIDENT_ID'], 'status': 'fix_generation_started', 'message': 'Issue Agent has identified the fix. Generating code changes'}))" > /tmp/webhook_payload.json
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "$JSON_PAYLOAD" 2>/dev/null || true
+            -d @/tmp/webhook_payload.json 2>/dev/null || true
 
       - name: Notify webhook - PR creation started
         if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/fix_result.json') != ''
@@ -142,11 +142,11 @@ jobs:
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
           INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
         run: |
-          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","status":"pr_creation_started","message":"Code changes generated. Creating pull request"}))')
+          python3 -c "import json, os; print(json.dumps({'action': 'remediation_webhook', 'source': 'github_actions', 'incident_id': os.environ['INCIDENT_ID'], 'status': 'pr_creation_started', 'message': 'Code changes generated. Creating pull request'}))" > /tmp/webhook_payload.json
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "$JSON_PAYLOAD" 2>/dev/null || true
+            -d @/tmp/webhook_payload.json 2>/dev/null || true
 
       - name: Notify webhook - PR created
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
@@ -158,14 +158,15 @@ jobs:
           PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
           PR_URL=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_url', ''))" 2>/dev/null || echo "")
           ISSUE_NUMBER=${{ github.event.issue.number || github.event.inputs.issue_number }}
+          export PR_NUMBER PR_URL ISSUE_NUMBER
 
           echo "Notifying webhook for incident: $INCIDENT_ID, PR: $PR_NUMBER"
 
-          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","issue_number":'"$ISSUE_NUMBER"',"pr_number":'"$PR_NUMBER"',"pr_url":"'"$PR_URL"'","status":"pr_created"}))')
+          python3 -c "import json, os; print(json.dumps({'action': 'remediation_webhook', 'source': 'github_actions', 'incident_id': os.environ['INCIDENT_ID'], 'issue_number': int(os.environ['ISSUE_NUMBER']), 'pr_number': int(os.environ['PR_NUMBER']), 'pr_url': os.environ['PR_URL'], 'status': 'pr_created'}))" > /tmp/webhook_payload.json
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
+            -d @/tmp/webhook_payload.json || echo "Webhook call failed (non-critical)"
 
       - name: Comment on issue
         if: always() && hashFiles('agent-output/analysis.json') != ''
