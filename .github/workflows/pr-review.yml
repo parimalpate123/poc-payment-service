@@ -1,0 +1,184 @@
+name: PR Review Agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: string
+
+jobs:
+  review-pr:
+    runs-on: ubuntu-latest
+    # Only run if PR is from Issue Agent (has auto-fix label or created by bot)
+    if: |
+      contains(github.event.pull_request.labels.*.name, 'auto-fix') ||
+      github.event.pull_request.user.type == 'Bot' ||
+      github.event_name == 'workflow_dispatch'
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write  # Required for AWS Bedrock OIDC authentication
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better code analysis
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PR Review Agent
+        run: |
+          git clone https://github.com/parimalpate123/pr-review-action.git /tmp/pr-review-action || echo "PR Review Agent repository not found"
+          if [ -d "/tmp/pr-review-action" ]; then
+            cd /tmp/pr-review-action
+            pip install -r requirements.txt
+          else
+            echo "⚠️ PR Review Agent repository not found. Using basic review."
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Extract incident ID
+        id: extract_incident
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          # Extract incident_id from PR body/description using GitHub API
+          INCIDENT_ID=$(python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import re
+          import sys
+          import urllib.request
+
+          try:
+              token = os.environ.get('GITHUB_TOKEN')
+              pr_num = os.environ.get('PR_NUMBER', '')
+              repo = os.environ.get('GITHUB_REPOSITORY', '')
+
+              if not token or not pr_num or not repo:
+                  print(f"Missing env vars: token={bool(token)}, pr_num={bool(pr_num)}, repo={bool(repo)}", file=sys.stderr)
+                  sys.exit(1)
+
+              url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}"
+              req = urllib.request.Request(url)
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+
+              with urllib.request.urlopen(req) as response:
+                  pr_data = json.loads(response.read())
+                  body = pr_data.get('body', '')
+                  
+                  # Try to extract from PR body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
+                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
+                  if match:
+                      print(match.group(1))
+                      sys.exit(0)
+                  
+                  # Also check linked issue
+                  issue_url = pr_data.get('issue_url', '')
+                  if issue_url:
+                      issue_num = issue_url.split('/')[-1]
+                      issue_url_api = f"https://api.github.com/repos/{repo}/issues/{issue_num}"
+                      req_issue = urllib.request.Request(issue_url_api)
+                      req_issue.add_header('Authorization', f'token {token}')
+                      req_issue.add_header('Accept', 'application/vnd.github.v3+json')
+                      
+                      with urllib.request.urlopen(req_issue) as issue_response:
+                          issue_data = json.loads(issue_response.read())
+                          issue_body = issue_data.get('body', '')
+                          match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', issue_body, re.IGNORECASE)
+                          if match:
+                              print(match.group(1))
+                              sys.exit(0)
+          except Exception as e:
+              print(f"Error: {e}", file=sys.stderr)
+
+          sys.exit(1)
+          PYTHON_EOF
+          ) || echo ""
+
+          echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
+          echo "Extracted incident_id: $INCIDENT_ID"
+
+      - name: Notify webhook - Review started
+        if: steps.extract_incident.outputs.incident_id != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","pr_number":'"$PR_NUMBER"',"status":"pr_review_started","message":"PR Review Agent is analyzing the pull request"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
+
+      - name: Run PR Review Agent
+        if: steps.extract_incident.outputs.incident_id != ''
+        env:
+          BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20240620-v1:0' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -f "/tmp/pr-review-action/src/agents/pr_review_agent.py" ]; then
+            python /tmp/pr-review-action/src/agents/pr_review_agent.py \
+              --pr-number $PR_NUMBER \
+              --repo $REPOSITORY \
+              --output-dir ./agent-output
+          else
+            echo "⚠️ PR Review Agent not found. Skipping automated review."
+            echo "Creating placeholder review result..."
+            mkdir -p agent-output
+            echo '{"review_status": "pending", "message": "PR Review Agent not configured"}' > agent-output/review_result.json
+          fi
+
+      - name: Notify webhook - Review completed
+        if: steps.extract_incident.outputs.incident_id != '' && (hashFiles('agent-output/review_result.json') != '' || always())
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+        run: |
+          if [ -f "agent-output/review_result.json" ]; then
+            REVIEW_STATUS=$(python3 -c "import json; f=open('agent-output/review_result.json'); d=json.load(f); print(d.get('review_status', 'pending'))" 2>/dev/null || echo "pending")
+            REVIEW_COMMENT=$(python3 -c "import json; f=open('agent-output/review_result.json'); d=json.load(f); print(d.get('review_comment', ''))" 2>/dev/null || echo "")
+          else
+            REVIEW_STATUS="pending"
+            REVIEW_COMMENT=""
+          fi
+          
+          JSON_PAYLOAD=$(python3 -c 'import json; print(json.dumps({"action":"remediation_webhook","source":"github_actions","incident_id":"'"$INCIDENT_ID"'","pr_number":'"$PR_NUMBER"',"status":"pr_reviewed","review_status":"'"$REVIEW_STATUS"'","review_comment":"'"$REVIEW_COMMENT"'"}))')
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
+
+      - name: Upload review logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-review-logs-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+          path: |
+            agent-output/
+            *.log
+          retention-days: 7
