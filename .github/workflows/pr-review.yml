@@ -50,7 +50,9 @@ jobs:
             exit 0
           fi
           
-          # Extract incident ID from PR
+          echo "🔍 PR Number: $PR_NUMBER"
+          
+          # Extract incident ID from PR (exit with 0 even if not found, just print empty)
           INCIDENT_ID=$(python3 << 'PYTHON_EOF'
           import json, os, re, sys, urllib.request
           
@@ -59,7 +61,8 @@ jobs:
           repo = os.environ.get('GITHUB_REPOSITORY', '')
           
           if not all([token, pr_num, repo]):
-              sys.exit(1)
+              print("", file=sys.stderr)
+              sys.exit(0)  # Exit 0, just print nothing
           
           try:
               # Get PR data
@@ -105,12 +108,13 @@ jobs:
           except Exception as e:
               print(f"Error: {e}", file=sys.stderr)
           
-          sys.exit(1)
+          # Not found - exit with 0, print nothing
+          sys.exit(0)
           PYTHON_EOF
-          )
+          ) || INCIDENT_ID=""
           
           if [ -z "$INCIDENT_ID" ]; then
-            echo "⚠️ No incident ID found. Skipping."
+            echo "⚠️ No incident ID found in PR #$PR_NUMBER. This PR may not be from Issue Agent."
             echo "incident_id=" >> $GITHUB_OUTPUT
             echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             exit 0
