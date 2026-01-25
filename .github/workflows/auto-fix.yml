@@ -106,13 +106,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "{
-              \"action\": \"remediation_webhook\",
-              \"source\": \"github_actions\",
-              \"incident_id\": \"${{ steps.extract_incident.outputs.incident_id }}\",
-              \"status\": \"analysis_started\",
-              \"message\": \"Issue Agent is analyzing the issue and identifying the root cause...\"
-            }" 2>/dev/null || true
+            -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.extract_incident.outputs.incident_id }}","status":"analysis_started","message":"Issue Agent is analyzing the issue and identifying the root cause..."}' 2>/dev/null || true
 
       - name: Run Issue Agent - Step 1: Analysis
         env:
@@ -135,13 +129,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "{
-              \"action\": \"remediation_webhook\",
-              \"source\": \"github_actions\",
-              \"incident_id\": \"${{ steps.extract_incident.outputs.incident_id }}\",
-              \"status\": \"fix_generation_started\",
-              \"message\": \"Issue Agent has identified the fix. Generating code changes...\"
-            }" 2>/dev/null || true
+            -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.extract_incident.outputs.incident_id }}","status":"fix_generation_started","message":"Issue Agent has identified the fix. Generating code changes..."}' 2>/dev/null || true
 
       - name: Notify webhook - PR creation started
         if: steps.extract_incident.outputs.incident_id != '' && hashFiles('agent-output/fix_result.json') != ''
@@ -152,13 +140,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "{
-              \"action\": \"remediation_webhook\",
-              \"source\": \"github_actions\",
-              \"incident_id\": \"${{ steps.extract_incident.outputs.incident_id }}\",
-              \"status\": \"pr_creation_started\",
-              \"message\": \"Code changes generated. Creating pull request...\"
-            }" 2>/dev/null || true
+            -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.extract_incident.outputs.incident_id }}","status":"pr_creation_started","message":"Code changes generated. Creating pull request..."}' 2>/dev/null || true
 
       - name: Notify webhook - PR created
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
@@ -175,15 +157,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
-            -d "{
-              \"action\": \"remediation_webhook\",
-              \"source\": \"github_actions\",
-              \"incident_id\": \"${{ steps.extract_incident.outputs.incident_id }}\",
-              \"issue_number\": $ISSUE_NUMBER,
-              \"pr_number\": $PR_NUMBER,
-              \"pr_url\": \"$PR_URL\",
-              \"status\": \"pr_created\"
-            }" || echo "Webhook call failed (non-critical)"
+            -d "{\"action\":\"remediation_webhook\",\"source\":\"github_actions\",\"incident_id\":\"${{ steps.extract_incident.outputs.incident_id }}\",\"issue_number\":$ISSUE_NUMBER,\"pr_number\":$PR_NUMBER,\"pr_url\":\"$PR_URL\",\"status\":\"pr_created\"}" || echo "Webhook call failed (non-critical)"
 
       - name: Comment on issue
         if: always() && hashFiles('agent-output/analysis.json') != ''
