@@ -30,15 +30,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     
-    # No condition needed for pull_request events - the 'on:' section already filters for opened/synchronize/reopened
+    # No job-level condition - workflow will run for all pull_request events
     # The extraction step will verify if PR is from Issue Agent and exit early if not
-    # For issue_comment events, only run if @pragent is mentioned
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'pull_request' ||
-      (github.event_name == 'issue_comment' && 
-       github.event.issue.pull_request && 
-       contains(github.event.comment.body, '@pragent'))
 
     steps:
       - name: Checkout repository
