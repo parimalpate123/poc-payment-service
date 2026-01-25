@@ -43,6 +43,13 @@ jobs:
           echo "🔍 PR Body (first 200 chars): ${{ github.event.pull_request.body }}"
           echo "🔍 Workflow triggered by: ${{ github.actor }}"
           echo "🔍 Repository: ${{ github.repository }}"
+          if [ "${{ github.event_name }}" == "issue_comment" ]; then
+            echo "🔍 Comment Author: ${{ github.event.comment.user.login }}"
+            echo "🔍 Comment Author Type: ${{ github.event.comment.user.type }}"
+            echo "🔍 Comment Body: ${{ github.event.comment.body }}"
+            echo "🔍 Issue Number: ${{ github.event.issue.number }}"
+            echo "🔍 Is PR: ${{ github.event.issue.pull_request }}"
+          fi
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -53,9 +60,32 @@ jobs:
         id: extract_info
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
+          # Determine PR number based on event type
+          # For pull_request events: github.event.pull_request.number
+          # For issue_comment events: github.event.issue.number (PRs are also issues)
+          # For workflow_dispatch: github.event.inputs.pr_number
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            PR_NUMBER="${{ github.event.pull_request.number }}"
+          elif [ "${{ github.event_name }}" == "issue_comment" ]; then
+            # For issue_comment, check if it's a PR comment
+            if [ -n "${{ github.event.issue.pull_request }}" ]; then
+              # Issue is a PR, use issue number (same as PR number)
+              PR_NUMBER="${{ github.event.issue.number }}"
+            else
+              echo "⚠️ Comment is not on a pull request, skipping"
+              exit 0
+            fi
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PR_NUMBER="${{ github.event.inputs.pr_number }}"
+          else
+            echo "⚠️ Unknown event type: ${{ github.event_name }}"
+            exit 0
+          fi
+          
+          echo "🔍 Extracted PR number: $PR_NUMBER"
+          
           # Extract incident_id from PR body/description using GitHub API
           # Also verify PR is from Issue Agent by checking linked issue has 'auto-fix' label
           INCIDENT_ID=$(python3 << 'PYTHON_EOF'
@@ -186,6 +216,7 @@ jobs:
           bedrock_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
           max_tokens: "25000"
           timeout_minutes: "30"
+          pr_number: ${{ steps.extract_info.outputs.pr_number }}  # Pass PR number directly to bypass comment detection
 
       - name: Extract review status from PR
         id: extract_review_status
