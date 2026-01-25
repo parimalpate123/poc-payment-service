@@ -30,14 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     
-    # Run if:
-    # 1. Any pull_request event (we'll verify it's from Issue Agent in the extraction step) - AUTO TRIGGER
-    # 2. Manual trigger via workflow_dispatch
-    # 3. Comment trigger with @pragent mention - MANUAL TRIGGER
-    # Note: The extraction step verifies PR is from Issue Agent by checking:
-    #   - PR body contains "Incident:" or "Incident ID:"
-    #   - Linked issue has 'auto-fix' label
-    # If verification fails, the step exits early and workflow stops
+    # Always run for pull_request events (the 'on:' section already filters for opened/synchronize/reopened)
+    # The extraction step will verify if PR is from Issue Agent and exit early if not
+    # For issue_comment events, only run if @pragent is mentioned
     if: |
       github.event_name == 'workflow_dispatch' ||
       github.event_name == 'pull_request' ||
