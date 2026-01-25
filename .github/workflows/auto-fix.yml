@@ -174,7 +174,7 @@ jobs:
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
             -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
 
-      - name: Notify - PR Review Agent will trigger automatically
+      - name: Trigger PR Review Agent via repository_dispatch
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -188,11 +188,11 @@ jobs:
             exit 0
           fi
           
-          echo "✅ PR #$PR_NUMBER created successfully"
-          echo "ℹ️  PR Review Agent workflow should trigger automatically on PR open event"
-          echo "ℹ️  If it doesn't trigger, check that the workflow file is on the main branch"
+          echo "🔔 Triggering PR Review Agent via repository_dispatch for PR #$PR_NUMBER"
           
-          # Post a comment for visibility (non-blocking)
+          # Trigger PR Review Agent using repository_dispatch event
+          # This works even for bot-created PRs
+          export PR_NUMBER="$PR_NUMBER"
           python3 << 'PYTHON_EOF'
           import json
           import os
@@ -203,7 +203,67 @@ jobs:
               token = os.environ.get('GITHUB_TOKEN')
               pr_num = os.environ.get('PR_NUMBER', '')
               repo = os.environ.get('GITHUB_REPOSITORY', '')
-              comment_body = "✅ PR created. PR Review Agent will review this PR automatically."
+
+              if not token or not pr_num or not repo:
+                  print(f"Missing env vars: token={bool(token)}, pr_num={bool(pr_num)}, repo={bool(repo)}", file=sys.stderr)
+                  sys.exit(1)
+
+              # Trigger repository_dispatch event
+              dispatch_url = f"https://api.github.com/repos/{repo}/dispatches"
+              
+              payload = {
+                  "event_type": "trigger_pr_review",
+                  "client_payload": {
+                      "pr_number": str(pr_num)
+                  }
+              }
+              
+              payload_data = json.dumps(payload).encode('utf-8')
+              
+              req = urllib.request.Request(dispatch_url, data=payload_data, method='POST')
+              req.add_header('Authorization', f'token {token}')
+              req.add_header('Accept', 'application/vnd.github.v3+json')
+              req.add_header('Content-Type', 'application/json')
+
+              with urllib.request.urlopen(req) as response:
+                  if response.status == 204:
+                      print(f"✅ PR Review Agent triggered successfully via repository_dispatch for PR #{pr_num}")
+                      sys.exit(0)
+                  else:
+                      response_data = response.read()
+                      print(f"⚠️ Unexpected response: {response.status} - {response_data}", file=sys.stderr)
+                      sys.exit(1)
+          except urllib.error.HTTPError as e:
+              error_body = e.read().decode('utf-8') if e.fp else 'No error body'
+              print(f"HTTP Error {e.code}: {error_body}", file=sys.stderr)
+              
+              if e.code == 403:
+                  print("", file=sys.stderr)
+                  print("⚠️ GITHUB_TOKEN doesn't have permission to trigger repository_dispatch.", file=sys.stderr)
+                  print("💡 Note: repository_dispatch requires 'contents: write' permission.", file=sys.stderr)
+                  print("💡 The workflow should still trigger automatically on PR open event.", file=sys.stderr)
+              
+              sys.exit(1)
+          except Exception as e:
+              print(f"Error triggering repository_dispatch: {e}", file=sys.stderr)
+              import traceback
+              traceback.print_exc()
+              sys.exit(1)
+          PYTHON_EOF
+          
+          # Also post a comment for visibility (non-blocking)
+          echo "📝 Posting comment on PR for visibility..."
+          python3 << 'PYTHON_EOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          try:
+              token = os.environ.get('GITHUB_TOKEN')
+              pr_num = os.environ.get('PR_NUMBER', '')
+              repo = os.environ.get('GITHUB_REPOSITORY', '')
+              comment_body = "✅ PR created. PR Review Agent has been triggered."
 
               if not token or not pr_num or not repo:
                   sys.exit(0)  # Non-blocking
