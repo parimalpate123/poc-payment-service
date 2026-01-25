@@ -156,7 +156,7 @@ jobs:
           curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -H "X-Webhook-Token: $WEBHOOK_SECRET" -d @/tmp/payload.json 2>/dev/null || true
 
       - name: Run PR Review Agent
-        if: steps.extract_info.outputs.incident_id != ''
+        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'pull_request'
         uses: parimalpate123/pr-code-review-action@justbedrock
         with:
           github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
@@ -167,7 +167,6 @@ jobs:
           bedrock_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
           max_tokens: "25000"
           timeout_minutes: "30"
-          pr_number: ${{ steps.extract_info.outputs.pr_number }}
 
       - name: Extract review status
         id: extract_review_status
