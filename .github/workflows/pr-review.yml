@@ -14,9 +14,14 @@ env:
 
 jobs:
   review:
-    if: github.event.issue.pull_request && contains(github.event.comment.body, '@pragent')
+    # startsWith (not contains) prevents re-trigger from action's review comments
+    # that may mention @pragent in the body but don't start with it
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '@pragent')
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    concurrency:
+      group: pr-review-${{ github.event.issue.number }}
+      cancel-in-progress: true
 
     steps:
       - name: Extract incident ID for webhook tracking
