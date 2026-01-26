@@ -1,303 +1,72 @@
 name: PR Review Agent
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: 'PR number to review'
-        required: true
-        type: string
-  repository_dispatch:
-    types: [trigger_pr_review]
 
 permissions:
   contents: write
   issues: write
   pull-requests: write
-  id-token: write
 
 env:
   MODEL_ID: us.anthropic.claude-3-5-sonnet-20241022-v2:0
 
 jobs:
   review:
+    if: github.event.issue.pull_request && contains(github.event.comment.body, '@pragent')
     runs-on: ubuntu-latest
     timeout-minutes: 35
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Extract PR number and incident ID
-        id: extract_info
+      - name: Extract incident ID for webhook tracking
+        id: info
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Get PR number from any event type
-          PR_NUMBER="${{ github.event.pull_request.number || github.event.issue.number || github.event.inputs.pr_number || github.event.client_payload.pr_number }}"
-          
-          if [ -z "$PR_NUMBER" ]; then
-            echo "⚠️ Could not determine PR number, skipping"
-            echo "incident_id=" >> $GITHUB_OUTPUT
-            echo "pr_number=" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "🔍 PR Number: $PR_NUMBER"
-          
-          # Export PR_NUMBER so Python script can access it
-          export PR_NUMBER
-          
-          # Extract incident ID from PR (exit with 0 even if not found, just print empty)
-          INCIDENT_ID=$(python3 << 'PYTHON_EOF'
-          import json, os, re, sys, urllib.request
-          
-          token = os.environ.get('GITHUB_TOKEN')
-          pr_num = os.environ.get('PR_NUMBER', '')
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          
-          if not all([token, pr_num, repo]):
-              print("⚠️ Missing required env vars", file=sys.stderr)
-              sys.exit(0)
-          
-          try:
-              # Get PR data
-              url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}"
-              req = urllib.request.Request(url)
-              req.add_header('Authorization', f'token {token}')
-              req.add_header('Accept', 'application/vnd.github.v3+json')
-              
-              with urllib.request.urlopen(req) as r:
-                  pr = json.loads(r.read())
-                  title = pr.get('title', '')
-                  body = pr.get('body', '')
-                  
-                  print(f"🔍 PR Title: {title[:100]}", file=sys.stderr)
-                  print(f"🔍 PR Body preview: {body[:200]}", file=sys.stderr)
-                  
-                  # Try title: "... - chat-xxx" or "FIX: ... - chat-xxx"
-                  m = re.search(r'-\s+(chat-[a-z0-9-]+)', title, re.I)
-                  if m and m.group(1).startswith('chat-'):
-                      print(f"✅ Found incident ID in title: {m.group(1)}", file=sys.stderr)
-                      print(m.group(1))
-                      sys.exit(0)
-                  
-                  # Try body: "Incident: chat-xxx" or "Incident ID: chat-xxx"
-                  m = re.search(r'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)', body, re.I)
-                  if m:
-                      print(f"✅ Found incident ID in body: {m.group(1)}", file=sys.stderr)
-                      print(m.group(1))
-                      sys.exit(0)
-                  
-                  # Try linked issue
-                  issue_url = pr.get('issue_url', '')
-                  if issue_url:
-                      issue_num = issue_url.split('/')[-1]
-                      print(f"🔍 Checking linked issue #{issue_num}", file=sys.stderr)
-                      issue_req = urllib.request.Request(f"https://api.github.com/repos/{repo}/issues/{issue_num}")
-                      issue_req.add_header('Authorization', f'token {token}')
-                      issue_req.add_header('Accept', 'application/vnd.github.v3+json')
-                      
-                      with urllib.request.urlopen(issue_req) as ir:
-                          issue = json.loads(ir.read())
-                          labels = [l.get('name') for l in issue.get('labels', [])]
-                          issue_body = issue.get('body', '')
-                          
-                          print(f"🔍 Issue labels: {labels}", file=sys.stderr)
-                          print(f"🔍 Issue body preview: {issue_body[:200]}", file=sys.stderr)
-                          
-                          if 'auto-fix' in labels:
-                              m = re.search(r'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)', issue_body, re.I)
-                              if m:
-                                  print(f"✅ Found incident ID in linked issue: {m.group(1)}", file=sys.stderr)
-                                  print(m.group(1))
-                                  sys.exit(0)
-                          else:
-                              print("⚠️ Linked issue does not have 'auto-fix' label", file=sys.stderr)
-          except Exception as e:
-              print(f"❌ Error: {e}", file=sys.stderr)
-              import traceback
-              traceback.print_exc(file=sys.stderr)
-          
-          # Not found - exit with 0, print nothing
-          print("⚠️ No incident ID found in PR title, body, or linked issue", file=sys.stderr)
-          sys.exit(0)
-          PYTHON_EOF
-          ) || INCIDENT_ID=""
-          
-          if [ -z "$INCIDENT_ID" ]; then
-            echo "⚠️ No incident ID found in PR #$PR_NUMBER. This PR may not be from Issue Agent."
-            echo "💡 Check the logs above to see what was searched."
-            echo "incident_id=" >> $GITHUB_OUTPUT
-            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
+          PR_NUMBER="${{ github.event.issue.number }}"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
-          echo "✅ Extracted: incident_id=$INCIDENT_ID, pr=$PR_NUMBER"
 
-      - name: Post @pragent comment to trigger action (only once)
-        if: steps.extract_info.outputs.incident_id != '' && github.event_name != 'issue_comment'
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          # Check if @pragent comment already exists to prevent infinite loop
-          # Also check if PR Review Agent has already run (by looking for its tracking comment)
-          python3 << 'PYTHON_EOF'
-          import json, os, sys, urllib.request
-          
-          token = os.environ.get('GITHUB_TOKEN')
-          pr_num = os.environ.get('PR_NUMBER', '')
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          
-          if not all([token, pr_num, repo]):
-              print("Missing env vars", file=sys.stderr)
-              sys.exit(1)
-          
-          try:
-              # Check all comments to see if @pragent exists or PR Review Agent has run
-              comments_url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
-              req_check = urllib.request.Request(comments_url)
-              req_check.add_header('Authorization', f'token {token}')
-              req_check.add_header('Accept', 'application/vnd.github.v3+json')
-              
-              with urllib.request.urlopen(req_check) as r:
-                  comments = json.loads(r.read())
-                  for comment in comments:
-                      body = comment.get('body', '').lower()
-                      user_type = comment.get('user', {}).get('type', '')
-                      # Check if @pragent comment exists (from any user)
-                      if '@pragent' in body:
-                          print(f"✅ @pragent comment already exists (by {comment.get('user', {}).get('login', 'unknown')}), skipping")
-                          sys.exit(0)
-                      # Check if PR Review Agent has already posted a tracking comment
-                      if 'pr agent is working' in body or 'tracking comment' in body:
-                          print(f"✅ PR Review Agent has already run (found tracking comment), skipping")
-                          sys.exit(0)
-              
-              # Comment doesn't exist, post it
-              comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
-              comment_body = "@pragent review this PR and provide recommendations"
-              comment_data = json.dumps({"body": comment_body}).encode('utf-8')
-              
-              req = urllib.request.Request(comment_url, data=comment_data, method='POST')
-              req.add_header('Authorization', f'token {token}')
-              req.add_header('Accept', 'application/vnd.github.v3+json')
-              req.add_header('Content-Type', 'application/json')
-              
-              with urllib.request.urlopen(req) as r:
-                  result = json.loads(r.read())
-                  print(f"✅ Posted @pragent comment on PR #{pr_num}")
-                  print(f"💡 This will trigger the workflow again via issue_comment event")
-          except Exception as e:
-              print(f"Error: {e}", file=sys.stderr)
-              sys.exit(1)
-          PYTHON_EOF
+          # Extract incident ID (chat-xxx) from PR title/body if present
+          INCIDENT_ID=$(gh pr view "$PR_NUMBER" --json title,body --jq '[.title, .body] | join(" ")' 2>/dev/null \
+            | grep -oE 'chat-[a-z0-9-]+' | head -1 || true)
+          echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
 
       - name: Notify webhook - Review started
-        if: steps.extract_info.outputs.incident_id != ''
-        env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          INCIDENT_ID: ${{ steps.extract_info.outputs.incident_id }}
-          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
+        if: steps.info.outputs.incident_id != ''
         run: |
-          python3 -c "import json, os; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':os.environ['INCIDENT_ID'],'pr_number':int(os.environ['PR_NUMBER']),'status':'pr_review_started','message':'PR Review Agent is analyzing the pull request'}))" > /tmp/payload.json
-          curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -H "X-Webhook-Token: $WEBHOOK_SECRET" -d @/tmp/payload.json 2>/dev/null || true
-
-      - name: Validate and set AWS region
-        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment' && contains(github.event.comment.body, '@pragent')
-        id: set_aws_region
-        run: |
-          # Get region and trim any whitespace
-          REGION="${{ secrets.AWS_REGION || 'us-east-1' }}"
-          REGION=$(echo "$REGION" | xargs)  # Trim whitespace
-          echo "region=$REGION" >> $GITHUB_OUTPUT
-          echo "✅ Using AWS region: $REGION"
-
-      - name: Check if comment is from bot to prevent loop
-        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment'
-        id: check_comment_source
-        run: |
-          # Only run if comment is NOT from a bot/workflow
-          COMMENT_AUTHOR_TYPE="${{ github.event.comment.user.type }}"
-          COMMENT_AUTHOR="${{ github.event.comment.user.login }}"
-          
-          if [ "$COMMENT_AUTHOR_TYPE" == "Bot" ] || [ "$COMMENT_AUTHOR" == "github-actions[bot]" ]; then
-            echo "⚠️ Comment is from bot/workflow, skipping to prevent loop"
-            echo "should_run=false" >> $GITHUB_OUTPUT
-          else
-            echo "✅ Comment is from user, proceeding"
-            echo "should_run=true" >> $GITHUB_OUTPUT
-          fi
+          curl -sX POST "${{ secrets.WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: ${{ secrets.WEBHOOK_SECRET }}" \
+            -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.info.outputs.incident_id }}","pr_number":${{ steps.info.outputs.pr_number }},"status":"pr_review_started","message":"PR Review Agent is analyzing the pull request"}' || true
 
       - name: Run PR Review Agent
-        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment' && contains(github.event.comment.body, '@pragent') && steps.check_comment_source.outputs.should_run == 'true'
         uses: parimalpate123/pr-code-review-action@justbedrock
         with:
-          github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.PAT_TOKEN }}
           aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: ${{ steps.set_aws_region.outputs.region || 'us-east-1' }}
-          model: ${{ env.MODEL_ID || secrets.BEDROCK_MODEL_ID || 'us.anthropic.claude-3-5-sonnet-20240620-v1:0' }}
-          bedrock_region: ${{ steps.set_aws_region.outputs.region || 'us-east-1' }}
+          aws_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          model: ${{ env.MODEL_ID }}
+          bedrock_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
           max_tokens: "25000"
           timeout_minutes: "30"
 
-      - name: Extract review status
-        id: extract_review_status
-        if: steps.extract_info.outputs.incident_id != ''
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-        run: |
-          sleep 2
-          REVIEW_STATUS=$(python3 << 'PYTHON_EOF'
-          import json, os, sys, urllib.request
-          token = os.environ.get('GITHUB_TOKEN')
-          pr_num = os.environ.get('PR_NUMBER', '')
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-          try:
-              url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}/reviews"
-              req = urllib.request.Request(url)
-              req.add_header('Authorization', f'token {token}')
-              req.add_header('Accept', 'application/vnd.github.v3+json')
-              with urllib.request.urlopen(req) as r:
-                  reviews = json.loads(r.read())
-                  if reviews:
-                      latest = reviews[-1]
-                      state = latest.get('state', 'pending')
-                      status_map = {'APPROVED': 'approved', 'CHANGES_REQUESTED': 'changes_requested', 'COMMENTED': 'commented', 'DISMISSED': 'pending'}
-                      print(json.dumps({'status': status_map.get(state, 'pending'), 'comment': latest.get('body', '')[:500]}))
-                      sys.exit(0)
-          except: pass
-          print(json.dumps({'status': 'pending', 'comment': ''}))
-          PYTHON_EOF
-          )
-          
-          echo "review_result<<EOF" >> $GITHUB_OUTPUT
-          echo "$REVIEW_STATUS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Notify webhook - Review completed
-        if: steps.extract_info.outputs.incident_id != ''
+        if: steps.info.outputs.incident_id != ''
         env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
-          INCIDENT_ID: ${{ steps.extract_info.outputs.incident_id }}
-          PR_NUMBER: ${{ steps.extract_info.outputs.pr_number }}
-          REVIEW_RESULT: ${{ steps.extract_review_status.outputs.review_result }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 -c "import json, os, sys; review=json.loads(os.environ.get('REVIEW_RESULT','{\"status\":\"pending\",\"comment\":\"\"}')); print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':os.environ['INCIDENT_ID'],'pr_number':int(os.environ['PR_NUMBER']),'status':'pr_reviewed','review_status':review.get('status','pending'),'review_comment':review.get('comment','')}))" > /tmp/review_payload.json
-          curl -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -H "X-Webhook-Token: $WEBHOOK_SECRET" -d @/tmp/review_payload.json || echo "Webhook failed (non-critical)"
+          REVIEW_STATE=$(gh api "repos/${{ github.repository }}/pulls/${{ steps.info.outputs.pr_number }}/reviews" \
+            --jq '.[-1].state // "PENDING"' 2>/dev/null || echo "PENDING")
+
+          case "$REVIEW_STATE" in
+            APPROVED) STATUS="approved" ;;
+            CHANGES_REQUESTED) STATUS="changes_requested" ;;
+            *) STATUS="pending" ;;
+          esac
+
+          curl -sX POST "${{ secrets.WEBHOOK_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: ${{ secrets.WEBHOOK_SECRET }}" \
+            -d "{\"action\":\"remediation_webhook\",\"source\":\"github_actions\",\"incident_id\":\"${{ steps.info.outputs.incident_id }}\",\"pr_number\":${{ steps.info.outputs.pr_number }},\"status\":\"pr_reviewed\",\"review_status\":\"$STATUS\"}" || true
