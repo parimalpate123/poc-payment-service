@@ -152,7 +152,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           # Check if @pragent comment already exists to prevent infinite loop
-          # Post comment with @pragent to trigger issue_comment event
+          # Also check if PR Review Agent has already run (by looking for its tracking comment)
           python3 << 'PYTHON_EOF'
           import json, os, sys, urllib.request
           
@@ -165,7 +165,7 @@ jobs:
               sys.exit(1)
           
           try:
-              # First, check if @pragent comment already exists
+              # Check all comments to see if @pragent exists or PR Review Agent has run
               comments_url = f"https://api.github.com/repos/{repo}/issues/{pr_num}/comments"
               req_check = urllib.request.Request(comments_url)
               req_check.add_header('Authorization', f'token {token}')
@@ -174,8 +174,15 @@ jobs:
               with urllib.request.urlopen(req_check) as r:
                   comments = json.loads(r.read())
                   for comment in comments:
-                      if '@pragent' in comment.get('body', '').lower():
-                          print(f"✅ @pragent comment already exists, skipping to prevent loop")
+                      body = comment.get('body', '').lower()
+                      user_type = comment.get('user', {}).get('type', '')
+                      # Check if @pragent comment exists (from any user)
+                      if '@pragent' in body:
+                          print(f"✅ @pragent comment already exists (by {comment.get('user', {}).get('login', 'unknown')}), skipping")
+                          sys.exit(0)
+                      # Check if PR Review Agent has already posted a tracking comment
+                      if 'pr agent is working' in body or 'tracking comment' in body:
+                          print(f"✅ PR Review Agent has already run (found tracking comment), skipping")
                           sys.exit(0)
               
               # Comment doesn't exist, post it
@@ -218,8 +225,24 @@ jobs:
           echo "region=$REGION" >> $GITHUB_OUTPUT
           echo "✅ Using AWS region: $REGION"
 
+      - name: Check if comment is from bot to prevent loop
+        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment'
+        id: check_comment_source
+        run: |
+          # Only run if comment is NOT from a bot/workflow
+          COMMENT_AUTHOR_TYPE="${{ github.event.comment.user.type }}"
+          COMMENT_AUTHOR="${{ github.event.comment.user.login }}"
+          
+          if [ "$COMMENT_AUTHOR_TYPE" == "Bot" ] || [ "$COMMENT_AUTHOR" == "github-actions[bot]" ]; then
+            echo "⚠️ Comment is from bot/workflow, skipping to prevent loop"
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          else
+            echo "✅ Comment is from user, proceeding"
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Run PR Review Agent
-        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment' && contains(github.event.comment.body, '@pragent')
+        if: steps.extract_info.outputs.incident_id != '' && github.event_name == 'issue_comment' && contains(github.event.comment.body, '@pragent') && steps.check_comment_source.outputs.should_run == 'true'
         uses: parimalpate123/pr-code-review-action@justbedrock
         with:
           github_token: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
