@@ -77,17 +77,42 @@ async function processPayment(amount, currency, paymentMethod) {
   // - External payment gateway timeout
   // - Invalid payment method handling
   
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const maxRetries = 3;
+  let retries = 0;
   
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  while (retries < maxRetries) {
+    try {
+      // Simulate processing delay
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          clearTimeout(timeout);
+          reject(new Error('Payment processing timeout'));
+        }, 5000);
+        
+        setTimeout(() => {
+          clearTimeout(timeout);
+          resolve();
+        }, 100);
+      });
+      
+      return {
+        id: `PAY-${Date.now()}`,
+        amount,
+        currency,
+        paymentMethod,
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error(`Payment processing attempt ${retries + 1} failed:`, error);
+      retries++;
+      if (retries >= maxRetries) {
+        throw new Error('Payment processing failed after multiple attempts');
+      }
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+    }
+  }
 }
 
 // Simulate payment status retrieval
