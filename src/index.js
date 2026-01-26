@@ -6,10 +6,30 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const { promisify } = require('util');
 const app = express();
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 30000, // 30 seconds timeout
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY}` }
+};
+
+const paymentGateway = axios.create(paymentGatewayConfig);
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 30000, // 30 seconds timeout
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY}` }
+};
+
+const paymentGateway = axios.create(paymentGatewayConfig);
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,22 +92,30 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const response = await paymentGateway.post('/process', {
+      amount,
+      currency,
+      paymentMethod
+    });
+    
+    return {
+      id: response.data.id,
+      amount: response.data.amount,
+      currency: response.data.currency,
+      paymentMethod: response.data.paymentMethod,
+      status: response.data.status,
+      timestamp: response.data.timestamp
+    };
+  } catch (error) {
+    if (error.code === 'ECONNABORTED') {
+      throw new Error('Payment gateway timeout');
+    }
+    if (error.response && error.response.status === 400) {
+      throw new Error('Invalid payment method or card verification failed');
+    }
+    throw new Error('Payment processing failed: ' + error.message);
+  }
 }
 
 // Simulate payment status retrieval
