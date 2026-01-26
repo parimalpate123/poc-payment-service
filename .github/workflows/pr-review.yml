@@ -34,18 +34,25 @@ jobs:
           echo "🔍 Extracting incident ID for PR #$PR_NUMBER"
 
           # Get PR details with more fields
-          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,body,number,labels 2>/dev/null || echo "{}")
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,body,number 2>/dev/null || echo "{}")
           PR_TITLE=$(echo "$PR_DATA" | jq -r '.title // ""' 2>/dev/null || echo "")
           PR_BODY=$(echo "$PR_DATA" | jq -r '.body // ""' 2>/dev/null || echo "")
-          PR_LABELS=$(echo "$PR_DATA" | jq -r '.labels[].name' 2>/dev/null || echo "")
           
           echo "📋 PR Title: $PR_TITLE"
           echo "📄 PR Body preview: ${PR_BODY:0:200}..."
-          echo "🏷️ PR Labels: $PR_LABELS"
 
           # FIRST: Try to extract incident ID from PR labels (most reliable method)
           # Labels are added by auto-fix.yml in format: "incident-chat-xxx"
+          # Use GitHub API directly to get labels (more reliable than gh pr view)
+          echo "🔍 Checking PR labels via GitHub API..."
+          PR_LABELS_JSON=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER" --jq '.labels' 2>/dev/null || echo "[]")
+          PR_LABELS=$(echo "$PR_LABELS_JSON" | jq -r '.[].name' 2>/dev/null | tr '\n' ' ' || echo "")
+          
+          echo "🏷️ PR Labels: $PR_LABELS"
+          echo "🔍 Raw labels JSON: $(echo "$PR_LABELS_JSON" | jq -c '.' 2>/dev/null || echo 'null')"
+          
           if [ -n "$PR_LABELS" ]; then
+            # Search for label matching pattern "incident-chat-xxx"
             INCIDENT_LABEL=$(echo "$PR_LABELS" | grep -oE 'incident-chat-[a-z0-9-]+' | head -1 || echo "")
             if [ -n "$INCIDENT_LABEL" ]; then
               # Extract incident ID from label (format: "incident-chat-xxx" -> "chat-xxx")
@@ -53,7 +60,11 @@ jobs:
               if [ -n "$INCIDENT_ID" ]; then
                 echo "✅ Found incident ID $INCIDENT_ID from PR label: $INCIDENT_LABEL"
               fi
+            else
+              echo "⚠️ No incident label found in PR labels: $PR_LABELS"
             fi
+          else
+            echo "⚠️ No labels found on PR #$PR_NUMBER"
           fi
 
           # If not found in labels, try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
