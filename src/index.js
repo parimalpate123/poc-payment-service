@@ -6,6 +6,8 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const { promisify } = require('util');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -70,24 +72,40 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment with retry logic
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const maxRetries = 3;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const response = await axiosInstance.post('/process-payment', {
+        amount,
+        currency,
+        paymentMethod
+      });
+
+      return {
+        id: response.data.id,
+        amount: response.data.amount,
+        currency: response.data.currency,
+        paymentMethod: response.data.paymentMethod,
+        status: response.data.status,
+        timestamp: response.data.timestamp
+      };
+    } catch (error) {
+      retries++;
+      console.error(`Payment processing attempt ${retries} failed:`, error.message);
+
+      if (retries >= maxRetries) {
+        throw new Error('Payment processing failed after multiple attempts');
+      }
+
+      // Exponential backoff
+      await delay(Math.pow(2, retries) * 1000);
+    }
+  }
+}
 }
 
 // Simulate payment status retrieval
