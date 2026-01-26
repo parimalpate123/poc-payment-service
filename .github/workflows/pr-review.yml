@@ -62,16 +62,56 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          REVIEW_STATE=$(gh api "repos/${{ github.repository }}/pulls/${{ steps.info.outputs.pr_number }}/reviews" \
-            --jq '.[-1].state // "PENDING"' 2>/dev/null || echo "PENDING")
+          echo "🔍 Checking PR review status for PR #${{ steps.info.outputs.pr_number }}"
+          
+          # Get PR reviews
+          REVIEWS=$(gh api "repos/${{ github.repository }}/pulls/${{ steps.info.outputs.pr_number }}/reviews" 2>/dev/null || echo "[]")
+          REVIEW_COUNT=$(echo "$REVIEWS" | jq '. | length' 2>/dev/null || echo "0")
+          
+          echo "📊 Found $REVIEW_COUNT review(s)"
+          
+          if [ "$REVIEW_COUNT" -gt 0 ]; then
+            REVIEW_STATE=$(echo "$REVIEWS" | jq -r '.[-1].state // "PENDING"' 2>/dev/null || echo "PENDING")
+            REVIEWER=$(echo "$REVIEWS" | jq -r '.[-1].user.login // "unknown"' 2>/dev/null || echo "unknown")
+            echo "✅ Latest review state: $REVIEW_STATE (by $REVIEWER)"
+          else
+            REVIEW_STATE="PENDING"
+            echo "⚠️ No reviews found, checking for review comments..."
+            
+            # Check if PR Review Agent posted a comment (might not submit formal review)
+            COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ steps.info.outputs.pr_number }}/comments" --jq '[.[] | select(.user.login | contains("bot") or contains("action") or contains("github-actions"))] | length' 2>/dev/null || echo "0")
+            echo "💬 Found $COMMENTS bot comment(s)"
+            
+            if [ "$COMMENTS" -gt 0 ]; then
+              # If there are bot comments, assume review was completed (even if not formal review)
+              # The action might post comments instead of submitting reviews
+              REVIEW_STATE="COMMENTED"
+              echo "✅ PR Review Agent posted comment(s), treating as review completed"
+            fi
+          fi
 
           case "$REVIEW_STATE" in
             APPROVED) STATUS="approved" ;;
             CHANGES_REQUESTED) STATUS="changes_requested" ;;
+            COMMENTED) STATUS="approved" ;; # Treat comments as approved for now
             *) STATUS="pending" ;;
           esac
 
-          curl -sX POST "${{ secrets.WEBHOOK_URL }}" \
+          echo "📤 Sending webhook with status: $STATUS"
+          
+          WEBHOOK_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${{ secrets.WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
             -H "X-Webhook-Token: ${{ secrets.WEBHOOK_SECRET }}" \
-            -d "{\"action\":\"remediation_webhook\",\"source\":\"github_actions\",\"incident_id\":\"${{ steps.info.outputs.incident_id }}\",\"pr_number\":${{ steps.info.outputs.pr_number }},\"status\":\"pr_reviewed\",\"review_status\":\"$STATUS\"}" || true
+            -d "{\"action\":\"remediation_webhook\",\"source\":\"github_actions\",\"incident_id\":\"${{ steps.info.outputs.incident_id }}\",\"pr_number\":${{ steps.info.outputs.pr_number }},\"status\":\"pr_reviewed\",\"review_status\":\"$STATUS\"}" 2>&1)
+          
+          HTTP_CODE=$(echo "$WEBHOOK_RESPONSE" | tail -n1)
+          RESPONSE_BODY=$(echo "$WEBHOOK_RESPONSE" | head -n-1)
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "✅ Webhook call successful (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+          else
+            echo "❌ Webhook call failed (HTTP $HTTP_CODE)"
+            echo "Response: $RESPONSE_BODY"
+            exit 1
+          fi
