@@ -33,50 +33,86 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "🔍 Extracting incident ID for PR #$PR_NUMBER"
 
-          # Get PR details
-          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,body,number 2>/dev/null || echo "{}")
+          # Get PR details with more fields
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,body,number,labels 2>/dev/null || echo "{}")
           PR_TITLE=$(echo "$PR_DATA" | jq -r '.title // ""' 2>/dev/null || echo "")
           PR_BODY=$(echo "$PR_DATA" | jq -r '.body // ""' 2>/dev/null || echo "")
+          PR_LABELS=$(echo "$PR_DATA" | jq -r '.labels[].name' 2>/dev/null || echo "")
           
           echo "📋 PR Title: $PR_TITLE"
           echo "📄 PR Body preview: ${PR_BODY:0:200}..."
+          echo "🏷️ PR Labels: $PR_LABELS"
 
           # Try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
+          # Pattern: chat- followed by alphanumeric and hyphens
           INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+          echo "🔍 After checking PR title: '$INCIDENT_ID'"
           
           # If not found in title, try PR body
           if [ -z "$INCIDENT_ID" ]; then
             echo "⚠️ Incident ID not found in PR title, checking body..."
             INCIDENT_ID=$(echo "$PR_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            echo "🔍 After checking PR body: '$INCIDENT_ID'"
           fi
           
-          # If still not found, try linked issue (PRs created from issues have issueUrl pointing to original issue)
+          # If still not found, search for issues with auto-fix label
+          # PRs created from issues are usually created shortly after the issue
           if [ -z "$INCIDENT_ID" ]; then
-            echo "⚠️ Incident ID not found in PR body, checking linked issue..."
-            # Get the issue URL from PR (PRs created from issues have issueUrl field)
-            ISSUE_URL=$(gh pr view "$PR_NUMBER" --json issueUrl --jq '.issueUrl // ""' 2>/dev/null || echo "")
-            if [ -n "$ISSUE_URL" ]; then
-              # Extract issue number from URL (format: https://api.github.com/repos/owner/repo/issues/123)
-              ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
-              echo "🔗 Found linked issue #$ISSUE_NUMBER"
-              if [ -n "$ISSUE_NUMBER" ]; then
-                ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body // ""' 2>/dev/null || echo "")
-                echo "📄 Issue body preview: ${ISSUE_BODY:0:200}..."
-                # Extract incident ID from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
-                INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
-                if [ -z "$INCIDENT_ID" ]; then
-                  # Also try without "Incident:" prefix, just look for chat-xxx pattern anywhere in issue body
-                  INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            echo "⚠️ Incident ID not found in PR, searching for linked issues with auto-fix label..."
+            
+            # Get recent issues with auto-fix label (last 20, sorted by creation date)
+            AUTO_FIX_ISSUES=$(gh issue list --label "auto-fix" --state all --limit 20 --json number,title,body,createdAt --jq 'sort_by(.createdAt) | reverse' 2>/dev/null || echo "[]")
+            ISSUE_COUNT=$(echo "$AUTO_FIX_ISSUES" | jq '. | length' 2>/dev/null || echo "0")
+            echo "📋 Found $ISSUE_COUNT issue(s) with auto-fix label"
+            
+            # Check each issue for incident ID
+            for i in $(seq 0 $((ISSUE_COUNT - 1))); do
+              ISSUE_NUM=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].number" 2>/dev/null || echo "")
+              ISSUE_TITLE=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].title" 2>/dev/null || echo "")
+              ISSUE_BODY=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].body" 2>/dev/null || echo "")
+              
+              if [ -n "$ISSUE_NUM" ]; then
+                # Try to extract incident ID from issue body
+                TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                
+                # If not found with "Incident:" prefix, try anywhere in body
+                if [ -z "$TEMP_ID" ]; then
+                  TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                fi
+                
+                # Also check issue title (format: "Fix: ... - chat-xxx")
+                if [ -z "$TEMP_ID" ]; then
+                  TEMP_ID=$(echo "$ISSUE_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                fi
+                
+                if [ -n "$TEMP_ID" ]; then
+                  # Verify this issue is likely linked to this PR by checking if PR title contains part of issue title
+                  # or if issue title contains part of PR title (both have the same root cause)
+                  PR_TITLE_CLEAN=$(echo "$PR_TITLE" | sed 's/^Fix: //' | sed 's/ - chat-.*$//' | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]' | tr -d '[:space:]')
+                  ISSUE_TITLE_CLEAN=$(echo "$ISSUE_TITLE" | sed 's/^Fix: //' | sed 's/ - chat-.*$//' | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]' | tr -d '[:space:]')
+                  
+                  # If titles match (or one contains the other), this is likely the linked issue
+                  if [ -n "$PR_TITLE_CLEAN" ] && [ -n "$ISSUE_TITLE_CLEAN" ]; then
+                    if [[ "$PR_TITLE_CLEAN" == *"$ISSUE_TITLE_CLEAN"* ]] || [[ "$ISSUE_TITLE_CLEAN" == *"$PR_TITLE_CLEAN"* ]]; then
+                      echo "✅ Found matching issue #$ISSUE_NUM with incident ID: $TEMP_ID"
+                      INCIDENT_ID="$TEMP_ID"
+                      break
+                    fi
+                  else
+                    # If title matching fails, use the first incident ID found (better than nothing)
+                    echo "✅ Found incident ID $TEMP_ID in issue #$ISSUE_NUM (title match uncertain)"
+                    INCIDENT_ID="$TEMP_ID"
+                    break
+                  fi
                 fi
               fi
-            else
-              echo "⚠️ No issueUrl found in PR - PR might not be created from an issue"
-            fi
+            done
           fi
 
           if [ -z "$INCIDENT_ID" ]; then
             echo "❌ Could not extract incident ID from PR #$PR_NUMBER"
             echo "💡 PR title: $PR_TITLE"
+            echo "💡 PR body length: ${#PR_BODY}"
             echo "💡 This is OK - webhook steps will be skipped but PR review will still run"
           else
             echo "✅ Extracted incident ID: $INCIDENT_ID"
@@ -85,7 +121,7 @@ jobs:
           echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
 
       - name: Notify webhook - Review started
-        if: steps.info.outputs.incident_id != ''
+        if: always() && steps.info.outputs.incident_id != ''
         run: |
           curl -sX POST "${{ secrets.WEBHOOK_URL }}" \
             -H "Content-Type: application/json" \
@@ -105,7 +141,7 @@ jobs:
           timeout_minutes: "30"
 
       - name: Notify webhook - Review completed
-        if: steps.info.outputs.incident_id != ''
+        if: always() && steps.info.outputs.incident_id != ''
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
