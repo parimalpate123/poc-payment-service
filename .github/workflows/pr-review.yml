@@ -43,10 +43,25 @@ jobs:
           echo "📄 PR Body preview: ${PR_BODY:0:200}..."
           echo "🏷️ PR Labels: $PR_LABELS"
 
-          # Try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
+          # FIRST: Try to extract incident ID from PR labels (most reliable method)
+          # Labels are added by auto-fix.yml in format: "incident-chat-xxx"
+          if [ -n "$PR_LABELS" ]; then
+            INCIDENT_LABEL=$(echo "$PR_LABELS" | grep -oE 'incident-chat-[a-z0-9-]+' | head -1 || echo "")
+            if [ -n "$INCIDENT_LABEL" ]; then
+              # Extract incident ID from label (format: "incident-chat-xxx" -> "chat-xxx")
+              INCIDENT_ID=$(echo "$INCIDENT_LABEL" | sed 's/^incident-//' || echo "")
+              if [ -n "$INCIDENT_ID" ]; then
+                echo "✅ Found incident ID $INCIDENT_ID from PR label: $INCIDENT_LABEL"
+              fi
+            fi
+          fi
+
+          # If not found in labels, try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
           # Pattern: chat- followed by alphanumeric and hyphens
-          INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
-          echo "🔍 After checking PR title: '$INCIDENT_ID'"
+          if [ -z "$INCIDENT_ID" ]; then
+            INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            echo "🔍 After checking PR title: '$INCIDENT_ID'"
+          fi
           
           # If not found in title, try PR body
           if [ -z "$INCIDENT_ID" ]; then
@@ -98,26 +113,66 @@ jobs:
             fi
           fi
           
-          # If still not found, search for issues with auto-fix label
+          # If still not found, try to get linked issue using GitHub API
+          # When PRs are created from issues, they're linked via the issueUrl field
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ Incident ID still not found, checking PR's linked issue via GitHub API..."
+            
+            # Get PR details including issueUrl (if PR was created from an issue)
+            PR_FULL_DATA=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" 2>/dev/null || echo "{}")
+            LINKED_ISSUE_URL=$(echo "$PR_FULL_DATA" | jq -r '.issue_url // ""' 2>/dev/null || echo "")
+            
+            if [ -n "$LINKED_ISSUE_URL" ] && [ "$LINKED_ISSUE_URL" != "null" ]; then
+              # Extract issue number from URL (format: https://api.github.com/repos/owner/repo/issues/123)
+              LINKED_ISSUE_NUM=$(echo "$LINKED_ISSUE_URL" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
+              echo "🔗 Found linked issue URL: $LINKED_ISSUE_URL (issue #$LINKED_ISSUE_NUM)"
+              
+              if [ -n "$LINKED_ISSUE_NUM" ]; then
+                LINKED_ISSUE_BODY=$(gh issue view "$LINKED_ISSUE_NUM" --json body --jq '.body // ""' 2>/dev/null || echo "")
+                LINKED_ISSUE_TITLE=$(gh issue view "$LINKED_ISSUE_NUM" --json title --jq '.title // ""' 2>/dev/null || echo "")
+                
+                if [ -n "$LINKED_ISSUE_BODY" ] || [ -n "$LINKED_ISSUE_TITLE" ]; then
+                  echo "📄 Linked issue #$LINKED_ISSUE_NUM title: $LINKED_ISSUE_TITLE"
+                  echo "📄 Linked issue #$LINKED_ISSUE_NUM body preview: ${LINKED_ISSUE_BODY:0:200}..."
+                  
+                  # Extract incident ID from linked issue
+                  INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  if [ -z "$INCIDENT_ID" ]; then
+                    INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  fi
+                  if [ -z "$INCIDENT_ID" ]; then
+                    INCIDENT_ID=$(echo "$LINKED_ISSUE_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  fi
+                  
+                  if [ -n "$INCIDENT_ID" ]; then
+                    echo "✅ Found incident ID $INCIDENT_ID in linked issue #$LINKED_ISSUE_NUM"
+                  fi
+                fi
+              fi
+            fi
+          fi
+          
+          # If still not found, search for ALL recent issues (not just auto-fix labeled)
           # PRs created from issues are usually created shortly after the issue
           if [ -z "$INCIDENT_ID" ]; then
-            echo "⚠️ Incident ID still not found, searching for recent issues with auto-fix label..."
+            echo "⚠️ Incident ID still not found, searching for ALL recent issues..."
             
-            # Get recent issues with auto-fix label (last 50, sorted by creation date, most recent first)
-            AUTO_FIX_ISSUES=$(gh issue list --label "auto-fix" --state all --limit 50 --json number,title,body,createdAt --jq 'sort_by(.createdAt) | reverse' 2>/dev/null || echo "[]")
-            ISSUE_COUNT=$(echo "$AUTO_FIX_ISSUES" | jq '. | length' 2>/dev/null || echo "0")
-            echo "📋 Found $ISSUE_COUNT issue(s) with auto-fix label"
+            # Get recent issues (last 30, sorted by creation date, most recent first)
+            # Search all issues, not just auto-fix labeled ones
+            ALL_ISSUES=$(gh issue list --state all --limit 30 --json number,title,body,createdAt,labels --jq 'sort_by(.createdAt) | reverse' 2>/dev/null || echo "[]")
+            ISSUE_COUNT=$(echo "$ALL_ISSUES" | jq '. | length' 2>/dev/null || echo "0")
+            echo "📋 Found $ISSUE_COUNT recent issue(s) (all states)"
             
-            # Get PR creation time to find the most recent issue before PR creation
+            # Get PR creation time to find issues created before PR
             PR_CREATED_AT=$(gh pr view "$PR_NUMBER" --json createdAt --jq '.createdAt // ""' 2>/dev/null || echo "")
             echo "🕐 PR created at: $PR_CREATED_AT"
             
             # Check each issue for incident ID, prioritizing recent ones
             for i in $(seq 0 $((ISSUE_COUNT - 1))); do
-              ISSUE_NUM=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].number" 2>/dev/null || echo "")
-              ISSUE_TITLE=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].title" 2>/dev/null || echo "")
-              ISSUE_BODY=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].body" 2>/dev/null || echo "")
-              ISSUE_CREATED=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].createdAt" 2>/dev/null || echo "")
+              ISSUE_NUM=$(echo "$ALL_ISSUES" | jq -r ".[$i].number" 2>/dev/null || echo "")
+              ISSUE_TITLE=$(echo "$ALL_ISSUES" | jq -r ".[$i].title" 2>/dev/null || echo "")
+              ISSUE_BODY=$(echo "$ALL_ISSUES" | jq -r ".[$i].body" 2>/dev/null || echo "")
+              ISSUE_LABELS=$(echo "$ALL_ISSUES" | jq -r ".[$i].labels[].name" 2>/dev/null || echo "")
               
               if [ -n "$ISSUE_NUM" ]; then
                 # Try to extract incident ID from issue body
@@ -134,13 +189,10 @@ jobs:
                 fi
                 
                 if [ -n "$TEMP_ID" ]; then
-                  # If PR was created recently and issue was created before PR, likely match
-                  # Or if this is the most recent issue with auto-fix label, use it
-                  if [ $i -eq 0 ]; then
-                    echo "✅ Using most recent auto-fix issue #$ISSUE_NUM with incident ID: $TEMP_ID"
-                    INCIDENT_ID="$TEMP_ID"
-                    break
-                  fi
+                  # Use the first issue found with an incident ID (most recent)
+                  echo "✅ Found incident ID $TEMP_ID in issue #$ISSUE_NUM (labels: $ISSUE_LABELS)"
+                  INCIDENT_ID="$TEMP_ID"
+                  break
                 fi
               fi
             done

@@ -174,6 +174,31 @@ jobs:
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
             -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
 
+      - name: Add incident ID label to PR
+        if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+        run: |
+          PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "PR number not found in pr_result.json"
+            exit 0
+          fi
+
+          # Add label with incident ID to PR (format: incident-chat-xxx)
+          # This makes it easy to extract incident ID in pr-review.yml
+          LABEL_NAME="incident-$INCIDENT_ID"
+          echo "Adding label '$LABEL_NAME' to PR #$PR_NUMBER"
+          
+          # Check if label exists, create it if not
+          gh label list --json name --jq '.[].name' | grep -q "^${LABEL_NAME}$" || \
+            gh label create "$LABEL_NAME" --description "Incident ID: $INCIDENT_ID" --color "0E8A16" || true
+          
+          # Add label to PR
+          gh pr edit "$PR_NUMBER" --add-label "$LABEL_NAME" || echo "Failed to add label (non-critical)"
+
       - name: Trigger PR Review Agent
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
         env:
