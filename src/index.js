@@ -6,10 +6,22 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const { promisify } = require('util');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 30000, // 30 seconds
+  maxRetries: 3,
+  retryDelay: 1000 // 1 second
+};
+
+const delay = promisify(setTimeout);
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,22 +84,36 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  let retries = 0;
+  while (retries <= paymentGatewayConfig.maxRetries) {
+    try {
+      const response = await axios.post('/process-payment', {
+        amount,
+        currency,
+        paymentMethod
+      }, {
+        baseURL: paymentGatewayConfig.baseURL,
+        timeout: paymentGatewayConfig.timeout
+      });
+      
+      return {
+        id: response.data.id,
+        amount: response.data.amount,
+        currency: response.data.currency,
+        paymentMethod: response.data.paymentMethod,
+        status: response.data.status,
+        timestamp: response.data.timestamp
+      };
+    } catch (error) {
+      console.error(`Payment processing attempt ${retries + 1} failed:`, error.message);
+      if (retries === paymentGatewayConfig.maxRetries) {
+        throw new Error('Payment processing failed after multiple attempts');
+      }
+      retries++;
+      await delay(paymentGatewayConfig.retryDelay);
+    }
+  }
+}
 }
 
 // Simulate payment status retrieval
