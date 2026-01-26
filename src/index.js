@@ -6,10 +6,22 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const { promisify } = require('util');
 const app = express();
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 30000, // 30 seconds timeout
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY}` }
+};
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+const axiosInstance = axios.create(paymentGatewayConfig);
+const delay = promisify(setTimeout);
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,22 +84,42 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const maxRetries = 3;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      const response = await axiosInstance.post('/process-payment', {
+        amount,
+        currency,
+        paymentMethod
+      });
+
+      return {
+        id: response.data.id,
+        amount: response.data.amount,
+        currency: response.data.currency,
+        paymentMethod: response.data.paymentMethod,
+        status: response.data.status,
+        timestamp: response.data.timestamp
+      };
+    } catch (error) {
+      if (error.response && error.response.status >= 500) {
+        retries++;
+        console.error(`Payment gateway error (attempt ${retries}):`, error.message);
+        await delay(1000 * retries); // Exponential backoff
+      } else if (error.code === 'ECONNABORTED') {
+        retries++;
+        console.error(`Payment gateway timeout (attempt ${retries}):`, error.message);
+        await delay(1000 * retries); // Exponential backoff
+      } else {
+        throw error; // Rethrow client errors or other issues
+      }
+    }
+  }
+
+  throw new Error('Payment processing failed after multiple attempts');
+}
 }
 
 // Simulate payment status retrieval
