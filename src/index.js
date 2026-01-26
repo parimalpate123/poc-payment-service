@@ -70,24 +70,28 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment through payment gateway
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const response = await axios.post('/process-payment', {
+      amount,
+      currency,
+      paymentMethod
+    }, paymentGatewayConfig);
+
+    return {
+      id: response.data.paymentId,
+      amount: response.data.amount,
+      currency: response.data.currency,
+      paymentMethod: response.data.paymentMethod,
+      status: response.data.status,
+      timestamp: response.data.timestamp
+    };
+  } catch (error) {
+    console.error('Payment gateway error:', error.message);
+    throw new Error('Payment processing failed: ' + error.message);
+  }
+}
 }
 
 // Simulate payment status retrieval
