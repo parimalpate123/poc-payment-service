@@ -31,10 +31,43 @@ jobs:
         run: |
           PR_NUMBER="${{ github.event.issue.number }}"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "🔍 Extracting incident ID for PR #$PR_NUMBER"
 
-          # Extract incident ID (chat-xxx) from PR title/body if present
-          INCIDENT_ID=$(gh pr view "$PR_NUMBER" --json title,body --jq '[.title, .body] | join(" ")' 2>/dev/null \
-            | grep -oE 'chat-[a-z0-9-]+' | head -1 || true)
+          # Get PR details
+          PR_DATA=$(gh pr view "$PR_NUMBER" --json title,body,number 2>/dev/null || echo "{}")
+          PR_TITLE=$(echo "$PR_DATA" | jq -r '.title // ""' 2>/dev/null || echo "")
+          PR_BODY=$(echo "$PR_DATA" | jq -r '.body // ""' 2>/dev/null || echo "")
+          
+          echo "📋 PR Title: $PR_TITLE"
+          echo "📄 PR Body preview: ${PR_BODY:0:200}..."
+
+          # Try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
+          INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+          
+          # If not found in title, try PR body
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ Incident ID not found in PR title, checking body..."
+            INCIDENT_ID=$(echo "$PR_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+          fi
+          
+          # If still not found, try linked issue (PRs are linked to issues)
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ Incident ID not found in PR body, checking linked issue..."
+            ISSUE_NUMBER=$(gh pr view "$PR_NUMBER" --json number --jq '.number' 2>/dev/null || echo "")
+            if [ -n "$ISSUE_NUMBER" ]; then
+              ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body // ""' 2>/dev/null || echo "")
+              INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            fi
+          fi
+
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "❌ Could not extract incident ID from PR #$PR_NUMBER"
+            echo "💡 PR title: $PR_TITLE"
+            echo "💡 This is OK - webhook steps will be skipped but PR review will still run"
+          else
+            echo "✅ Extracted incident ID: $INCIDENT_ID"
+          fi
+          
           echo "incident_id=$INCIDENT_ID" >> $GITHUB_OUTPUT
 
       - name: Notify webhook - Review started
