@@ -50,13 +50,27 @@ jobs:
             INCIDENT_ID=$(echo "$PR_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
           fi
           
-          # If still not found, try linked issue (PRs are linked to issues)
+          # If still not found, try linked issue (PRs created from issues have issueUrl pointing to original issue)
           if [ -z "$INCIDENT_ID" ]; then
             echo "⚠️ Incident ID not found in PR body, checking linked issue..."
-            ISSUE_NUMBER=$(gh pr view "$PR_NUMBER" --json number --jq '.number' 2>/dev/null || echo "")
-            if [ -n "$ISSUE_NUMBER" ]; then
-              ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body // ""' 2>/dev/null || echo "")
-              INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            # Get the issue URL from PR (PRs created from issues have issueUrl field)
+            ISSUE_URL=$(gh pr view "$PR_NUMBER" --json issueUrl --jq '.issueUrl // ""' 2>/dev/null || echo "")
+            if [ -n "$ISSUE_URL" ]; then
+              # Extract issue number from URL (format: https://api.github.com/repos/owner/repo/issues/123)
+              ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '/issues/[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
+              echo "🔗 Found linked issue #$ISSUE_NUMBER"
+              if [ -n "$ISSUE_NUMBER" ]; then
+                ISSUE_BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body // ""' 2>/dev/null || echo "")
+                echo "📄 Issue body preview: ${ISSUE_BODY:0:200}..."
+                # Extract incident ID from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
+                INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                if [ -z "$INCIDENT_ID" ]; then
+                  # Also try without "Incident:" prefix, just look for chat-xxx pattern anywhere in issue body
+                  INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                fi
+              fi
+            else
+              echo "⚠️ No issueUrl found in PR - PR might not be created from an issue"
             fi
           fi
 
