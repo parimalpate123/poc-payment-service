@@ -6,10 +6,21 @@
  */
 
 const express = require('express');
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Create axios instance with retry logic
+const paymentGatewayClient = axios.create(paymentGatewayConfig);
+paymentGatewayClient.interceptors.response.use(undefined, async (err) => {
+  if (err.code === 'ECONNABORTED' && err.config && !err.config.__isRetry) {
+    err.config.__isRetry = true;
+    return paymentGatewayClient(err.config);
+  }
+  throw err;
+});
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,22 +83,31 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const response = await paymentGatewayClient.post('/process-payment', {
+      amount,
+      currency,
+      paymentMethod
+    });
+    
+    return {
+      id: response.data.id,
+      amount: response.data.amount,
+      currency: response.data.currency,
+      paymentMethod: response.data.paymentMethod,
+      status: response.data.status,
+      timestamp: response.data.timestamp
+    };
+  } catch (error) {
+    console.error('Payment gateway error:', error.message);
+    if (error.response) {
+      throw new Error(`Payment failed: ${error.response.data.message}`);
+    } else if (error.code === 'ECONNABORTED') {
+      throw new Error('Payment gateway timeout');
+    } else {
+      throw new Error('Payment processing error');
+    }
+  }
 }
 
 // Simulate payment status retrieval
