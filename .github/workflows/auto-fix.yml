@@ -174,90 +174,22 @@ jobs:
             -H "X-Webhook-Token: $WEBHOOK_SECRET" \
             -d "$JSON_PAYLOAD" || echo "Webhook call failed (non-critical)"
 
-      - name: Trigger PR Review Agent via repository_dispatch
+      - name: Trigger PR Review Agent
         if: steps.extract_incident.outputs.incident_id != '' && success() && hashFiles('agent-output/pr_result.json') != ''
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          # Extract PR number from the JSON file
           PR_NUMBER=$(python3 -c "import json; f=open('agent-output/pr_result.json'); d=json.load(f); print(d.get('pr_number', ''))" 2>/dev/null || echo "")
-          
+
           if [ -z "$PR_NUMBER" ]; then
-            echo "⚠️ PR number not found in pr_result.json"
+            echo "PR number not found in pr_result.json"
             exit 0
           fi
-          
-          echo "🔔 Triggering PR Review Agent via repository_dispatch for PR #$PR_NUMBER"
-          
-          # Trigger PR Review Agent using repository_dispatch event
-          export PR_NUMBER="$PR_NUMBER"
-          python3 << 'PYTHON_EOF'
-          import json, os, sys, urllib.request
 
-          token = os.environ.get('GITHUB_TOKEN')
-          pr_num = os.environ.get('PR_NUMBER', '')
-          repo = os.environ.get('GITHUB_REPOSITORY', '')
-
-          if not all([token, pr_num, repo]):
-              print(f"Missing env vars: token={bool(token)}, pr_num={bool(pr_num)}, repo={bool(repo)}", file=sys.stderr)
-              sys.exit(1)
-
-          try:
-              # Trigger repository_dispatch event
-              dispatch_url = f"https://api.github.com/repos/{repo}/dispatches"
-              payload = {
-                  "event_type": "trigger_pr_review",
-                  "client_payload": {"pr_number": str(pr_num)}
-              }
-              
-              req = urllib.request.Request(dispatch_url, data=json.dumps(payload).encode('utf-8'), method='POST')
-              req.add_header('Authorization', f'token {token}')
-              req.add_header('Accept', 'application/vnd.github.v3+json')
-              req.add_header('Content-Type', 'application/json')
-
-              with urllib.request.urlopen(req) as r:
-                  if r.status == 204:
-                      print(f"✅ PR Review Agent triggered via repository_dispatch for PR #{pr_num}")
-                      sys.exit(0)
-                  else:
-                      print(f"⚠️ Unexpected response: {r.status}", file=sys.stderr)
-                      sys.exit(1)
-          except urllib.error.HTTPError as e:
-              error_body = e.read().decode('utf-8') if e.fp else 'No error body'
-              print(f"HTTP Error {e.code}: {error_body}", file=sys.stderr)
-              if e.code == 403:
-                  print("⚠️ GITHUB_TOKEN doesn't have permission. Workflow should still trigger on PR open.", file=sys.stderr)
-              sys.exit(1)
-          except Exception as e:
-              print(f"Error: {e}", file=sys.stderr)
-              import traceback
-              traceback.print_exc(file=sys.stderr)
-              sys.exit(1)
-          PYTHON_EOF
-          
-          # Post comment for visibility
-          python3 << 'PYTHON_EOF'
-          import json, os, sys, urllib.request
-          try:
-              token = os.environ.get('GITHUB_TOKEN')
-              pr_num = os.environ.get('PR_NUMBER', '')
-              repo = os.environ.get('GITHUB_REPOSITORY', '')
-              if all([token, pr_num, repo]):
-                  pr_url = f"https://api.github.com/repos/{repo}/pulls/{pr_num}"
-                  req = urllib.request.Request(pr_url)
-                  req.add_header('Authorization', f'token {token}')
-                  req.add_header('Accept', 'application/vnd.github.v3+json')
-                  with urllib.request.urlopen(req) as r:
-                      issue_num = json.loads(r.read()).get('number')
-                      comment_url = f"https://api.github.com/repos/{repo}/issues/{issue_num}/comments"
-                      req_comment = urllib.request.Request(comment_url, data=json.dumps({"body": "✅ PR created. PR Review Agent triggered."}).encode('utf-8'), method='POST')
-                      req_comment.add_header('Authorization', f'token {token}')
-                      req_comment.add_header('Accept', 'application/vnd.github.v3+json')
-                      req_comment.add_header('Content-Type', 'application/json')
-                      urllib.request.urlopen(req_comment)
-          except: pass
-          PYTHON_EOF
+          # Post @pragent comment using PAT_TOKEN to trigger pr-review.yml
+          # PAT_TOKEN is required — GITHUB_TOKEN events don't trigger other workflows
+          gh pr comment "$PR_NUMBER" --body "@pragent review this PR and provide recommendations"
+          echo "Posted @pragent comment on PR #$PR_NUMBER"
 
       - name: Comment on issue
         if: always() && hashFiles('agent-output/analysis.json') != ''
