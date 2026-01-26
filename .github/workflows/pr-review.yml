@@ -55,21 +55,69 @@ jobs:
             echo "🔍 After checking PR body: '$INCIDENT_ID'"
           fi
           
+          # If still not found, check PR comments for incident ID
+          # The auto-fix workflow or other processes might have commented with incident ID
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ Incident ID not found in PR, checking PR comments..."
+            PR_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[].body' 2>/dev/null || echo "")
+            if [ -n "$PR_COMMENTS" ]; then
+              INCIDENT_ID=$(echo "$PR_COMMENTS" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+              if [ -n "$INCIDENT_ID" ]; then
+                echo "✅ Found incident ID $INCIDENT_ID in PR comments"
+              fi
+            fi
+          fi
+          
+          # If still not found, try to find the original issue that created this PR
+          # When PRs are created from issues, they're linked. Check PR head branch name for issue number
+          if [ -z "$INCIDENT_ID" ]; then
+            echo "⚠️ Incident ID not found in PR comments, checking PR head branch for issue reference..."
+            
+            # Get PR head branch name (often contains issue number like "issue-123" or "fix-123")
+            PR_HEAD_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName // ""' 2>/dev/null || echo "")
+            echo "🌿 PR head branch: $PR_HEAD_BRANCH"
+            
+            # Extract potential issue number from branch name
+            POTENTIAL_ISSUE_NUM=$(echo "$PR_HEAD_BRANCH" | grep -oE '[0-9]+' | head -1 || echo "")
+            
+            if [ -n "$POTENTIAL_ISSUE_NUM" ]; then
+              echo "🔍 Found potential issue number in branch: #$POTENTIAL_ISSUE_NUM"
+              # Try to get issue body
+              ISSUE_BODY=$(gh issue view "$POTENTIAL_ISSUE_NUM" --json body --jq '.body // ""' 2>/dev/null || echo "")
+              if [ -n "$ISSUE_BODY" ]; then
+                echo "📄 Issue #$POTENTIAL_ISSUE_NUM body preview: ${ISSUE_BODY:0:200}..."
+                # Extract incident ID from issue body
+                INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                if [ -z "$INCIDENT_ID" ]; then
+                  INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                fi
+                if [ -n "$INCIDENT_ID" ]; then
+                  echo "✅ Found incident ID $INCIDENT_ID in issue #$POTENTIAL_ISSUE_NUM"
+                fi
+              fi
+            fi
+          fi
+          
           # If still not found, search for issues with auto-fix label
           # PRs created from issues are usually created shortly after the issue
           if [ -z "$INCIDENT_ID" ]; then
-            echo "⚠️ Incident ID not found in PR, searching for linked issues with auto-fix label..."
+            echo "⚠️ Incident ID still not found, searching for recent issues with auto-fix label..."
             
-            # Get recent issues with auto-fix label (last 20, sorted by creation date)
-            AUTO_FIX_ISSUES=$(gh issue list --label "auto-fix" --state all --limit 20 --json number,title,body,createdAt --jq 'sort_by(.createdAt) | reverse' 2>/dev/null || echo "[]")
+            # Get recent issues with auto-fix label (last 50, sorted by creation date, most recent first)
+            AUTO_FIX_ISSUES=$(gh issue list --label "auto-fix" --state all --limit 50 --json number,title,body,createdAt --jq 'sort_by(.createdAt) | reverse' 2>/dev/null || echo "[]")
             ISSUE_COUNT=$(echo "$AUTO_FIX_ISSUES" | jq '. | length' 2>/dev/null || echo "0")
             echo "📋 Found $ISSUE_COUNT issue(s) with auto-fix label"
             
-            # Check each issue for incident ID
+            # Get PR creation time to find the most recent issue before PR creation
+            PR_CREATED_AT=$(gh pr view "$PR_NUMBER" --json createdAt --jq '.createdAt // ""' 2>/dev/null || echo "")
+            echo "🕐 PR created at: $PR_CREATED_AT"
+            
+            # Check each issue for incident ID, prioritizing recent ones
             for i in $(seq 0 $((ISSUE_COUNT - 1))); do
               ISSUE_NUM=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].number" 2>/dev/null || echo "")
               ISSUE_TITLE=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].title" 2>/dev/null || echo "")
               ISSUE_BODY=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].body" 2>/dev/null || echo "")
+              ISSUE_CREATED=$(echo "$AUTO_FIX_ISSUES" | jq -r ".[$i].createdAt" 2>/dev/null || echo "")
               
               if [ -n "$ISSUE_NUM" ]; then
                 # Try to extract incident ID from issue body
@@ -86,21 +134,10 @@ jobs:
                 fi
                 
                 if [ -n "$TEMP_ID" ]; then
-                  # Verify this issue is likely linked to this PR by checking if PR title contains part of issue title
-                  # or if issue title contains part of PR title (both have the same root cause)
-                  PR_TITLE_CLEAN=$(echo "$PR_TITLE" | sed 's/^Fix: //' | sed 's/ - chat-.*$//' | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]' | tr -d '[:space:]')
-                  ISSUE_TITLE_CLEAN=$(echo "$ISSUE_TITLE" | sed 's/^Fix: //' | sed 's/ - chat-.*$//' | tr '[:upper:]' '[:lower:]' | tr -d '[:punct:]' | tr -d '[:space:]')
-                  
-                  # If titles match (or one contains the other), this is likely the linked issue
-                  if [ -n "$PR_TITLE_CLEAN" ] && [ -n "$ISSUE_TITLE_CLEAN" ]; then
-                    if [[ "$PR_TITLE_CLEAN" == *"$ISSUE_TITLE_CLEAN"* ]] || [[ "$ISSUE_TITLE_CLEAN" == *"$PR_TITLE_CLEAN"* ]]; then
-                      echo "✅ Found matching issue #$ISSUE_NUM with incident ID: $TEMP_ID"
-                      INCIDENT_ID="$TEMP_ID"
-                      break
-                    fi
-                  else
-                    # If title matching fails, use the first incident ID found (better than nothing)
-                    echo "✅ Found incident ID $TEMP_ID in issue #$ISSUE_NUM (title match uncertain)"
+                  # If PR was created recently and issue was created before PR, likely match
+                  # Or if this is the most recent issue with auto-fix label, use it
+                  if [ $i -eq 0 ]; then
+                    echo "✅ Using most recent auto-fix issue #$ISSUE_NUM with incident ID: $TEMP_ID"
                     INCIDENT_ID="$TEMP_ID"
                     break
                   fi
