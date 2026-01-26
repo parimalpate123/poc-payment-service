@@ -72,22 +72,37 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const maxRetries = 3;
+  const baseDelay = 1000; // 1 second
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // Simulate processing delay and potential network issues
+      await new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (Math.random() < 0.2) { // 20% chance of failure
+            reject(new Error('Payment gateway timeout'));
+          } else {
+            resolve();
+          }
+        }, baseDelay * attempt);
+      });
+
+      return {
+        id: `PAY-${Date.now()}`,
+        amount,
+        currency,
+        paymentMethod,
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      console.error(`Payment processing attempt ${attempt} failed:`, error);
+      if (attempt === maxRetries) {
+        throw new Error('Payment processing failed after multiple attempts');
+      }
+    }
+  }
 }
 
 // Simulate payment status retrieval
