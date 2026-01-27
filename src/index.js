@@ -6,10 +6,17 @@
  */
 
 const express = require('express');
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// OrderService API configuration
+const orderServiceConfig = {
+  baseURL: process.env.ORDER_SERVICE_URL || 'http://order-service-api',
+  timeout: 5000
+};
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,22 +79,32 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    // Fetch order data from OrderService API
+    const orderResponse = await axios.get(`${orderServiceConfig.baseURL}/api/orders/${paymentMethod.orderId}`, {
+      timeout: orderServiceConfig.timeout
+    });
+
+    if (!orderResponse.data || !orderResponse.data.id) {
+      throw new Error('Invalid or missing order data from OrderService API');
+    }
+
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    return {
+      id: `PAY-${Date.now()}`,
+      orderId: orderResponse.data.id,
+      amount,
+      currency,
+      paymentMethod,
+      status: 'completed',
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error processing payment:', error.message);
+    throw new Error('Payment processing failed due to order data issue');
+  }
 }
 
 // Simulate payment status retrieval
