@@ -72,39 +72,72 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  // Validate input
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.length !== 3) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'debit_card', 'paypal'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
+  try {
+    // Simulate external payment gateway call
+    await new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (Math.random() < 0.1) { // 10% chance of failure
+          reject(new Error('Payment gateway timeout'));
+        } else {
+          resolve();
+        }
+      }, 1000);
+    });
+
+    return {
+      id: `PAY-${Date.now()}`,
+      amount,
+      currency,
+      paymentMethod,
+      status: 'completed',
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Payment processing error:', error);
+    throw new Error('Payment processing failed: ' + error.message);
+  }
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  if (typeof paymentId !== 'string' || !paymentId.startsWith('PAY-')) {
+    throw new Error('Invalid payment ID');
+  }
+
+  try {
+    // Simulate database query with potential timeout
+    const result = await new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (Math.random() < 0.05) { // 5% chance of timeout
+          reject(new Error('Database query timeout'));
+        } else {
+          resolve({
+            id: paymentId,
+            status: 'completed',
+            amount: 100.00,
+            currency: 'USD',
+            timestamp: new Date().toISOString()
+          });
+        }
+      }, 100);
+    });
+
+    return result;
+  } catch (error) {
+    console.error('Error fetching payment status:', error);
+    throw new Error('Failed to fetch payment status: ' + error.message);
+  }
 }
 
 // Start server
