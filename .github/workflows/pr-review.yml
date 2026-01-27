@@ -53,7 +53,7 @@ jobs:
           
           if [ -n "$PR_LABELS" ]; then
             # Search for label matching pattern "incident-chat-xxx"
-            INCIDENT_LABEL=$(echo "$PR_LABELS" | grep -oE 'incident-chat-[a-z0-9-]+' | head -1 || echo "")
+            INCIDENT_LABEL=$(echo "$PR_LABELS" | grep -oE 'incident-(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
             if [ -n "$INCIDENT_LABEL" ]; then
               # Extract incident ID from label (format: "incident-chat-xxx" -> "chat-xxx")
               INCIDENT_ID=$(echo "$INCIDENT_LABEL" | sed 's/^incident-//' || echo "")
@@ -70,14 +70,14 @@ jobs:
           # If not found in labels, try to extract incident ID from PR title (format: "Fix: ... - chat-xxx")
           # Pattern: chat- followed by alphanumeric and hyphens
           if [ -z "$INCIDENT_ID" ]; then
-            INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            INCIDENT_ID=$(echo "$PR_TITLE" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
             echo "🔍 After checking PR title: '$INCIDENT_ID'"
           fi
           
           # If not found in title, try PR body
           if [ -z "$INCIDENT_ID" ]; then
             echo "⚠️ Incident ID not found in PR title, checking body..."
-            INCIDENT_ID=$(echo "$PR_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+            INCIDENT_ID=$(echo "$PR_BODY" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
             echo "🔍 After checking PR body: '$INCIDENT_ID'"
           fi
           
@@ -87,7 +87,7 @@ jobs:
             echo "⚠️ Incident ID not found in PR, checking PR comments..."
             PR_COMMENTS=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[].body' 2>/dev/null || echo "")
             if [ -n "$PR_COMMENTS" ]; then
-              INCIDENT_ID=$(echo "$PR_COMMENTS" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+              INCIDENT_ID=$(echo "$PR_COMMENTS" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
               if [ -n "$INCIDENT_ID" ]; then
                 echo "✅ Found incident ID $INCIDENT_ID in PR comments"
               fi
@@ -113,9 +113,9 @@ jobs:
               if [ -n "$ISSUE_BODY" ]; then
                 echo "📄 Issue #$POTENTIAL_ISSUE_NUM body preview: ${ISSUE_BODY:0:200}..."
                 # Extract incident ID from issue body
-                INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*((chat|cw|inc|test)-[a-z0-9-]+)' | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                 if [ -z "$INCIDENT_ID" ]; then
-                  INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  INCIDENT_ID=$(echo "$ISSUE_BODY" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                 fi
                 if [ -n "$INCIDENT_ID" ]; then
                   echo "✅ Found incident ID $INCIDENT_ID in issue #$POTENTIAL_ISSUE_NUM"
@@ -147,12 +147,12 @@ jobs:
                   echo "📄 Linked issue #$LINKED_ISSUE_NUM body preview: ${LINKED_ISSUE_BODY:0:200}..."
                   
                   # Extract incident ID from linked issue
-                  INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*((chat|cw|inc|test)-[a-z0-9-]+)' | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                   if [ -z "$INCIDENT_ID" ]; then
-                    INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                    INCIDENT_ID=$(echo "$LINKED_ISSUE_BODY" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                   fi
                   if [ -z "$INCIDENT_ID" ]; then
-                    INCIDENT_ID=$(echo "$LINKED_ISSUE_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                    INCIDENT_ID=$(echo "$LINKED_ISSUE_TITLE" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                   fi
                   
                   if [ -n "$INCIDENT_ID" ]; then
@@ -187,16 +187,16 @@ jobs:
               
               if [ -n "$ISSUE_NUM" ]; then
                 # Try to extract incident ID from issue body
-                TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*(chat-[a-z0-9-]+)' | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE 'Incident(?: ID)?:\s*((chat|cw|inc|test)-[a-z0-9-]+)' | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                 
                 # If not found with "Incident:" prefix, try anywhere in body
                 if [ -z "$TEMP_ID" ]; then
-                  TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  TEMP_ID=$(echo "$ISSUE_BODY" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                 fi
                 
                 # Also check issue title (format: "Fix: ... - chat-xxx")
                 if [ -z "$TEMP_ID" ]; then
-                  TEMP_ID=$(echo "$ISSUE_TITLE" | grep -oE 'chat-[a-z0-9-]+' | head -1 || echo "")
+                  TEMP_ID=$(echo "$ISSUE_TITLE" | grep -oE '(chat|cw|inc|test)-[a-z0-9-]+' | head -1 || echo "")
                 fi
                 
                 if [ -n "$TEMP_ID" ]; then

@@ -88,9 +88,19 @@ jobs:
               with urllib.request.urlopen(req) as response:
                   issue_data = json.loads(response.read())
                   body = issue_data.get('body', '')
+                  labels = [label.get('name', '') for label in issue_data.get('labels', [])]
 
-                  # Try to extract from issue body (format: "Incident: chat-xxx" or "Incident ID: chat-xxx")
-                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9-]+)', body, re.IGNORECASE)
+                  # First try to extract from label (format: "incident-{incident_id}")
+                  # Labels are more reliable and can contain colons/dots
+                  for label in labels:
+                      if label.startswith('incident-'):
+                          incident_id = label[9:]  # Remove "incident-" prefix
+                          print(incident_id)
+                          sys.exit(0)
+
+                  # Fallback: Try to extract from issue body (format: "Incident: chat-xxx" or "Incident ID: test-2026-01-27T04:42:53.334618")
+                  # Include colons, dots, and other characters that might be in ISO timestamps
+                  match = re.search(r'Incident(?: ID)?:\s*([a-z0-9\-:\.]+)', body, re.IGNORECASE)
                   if match:
                       print(match.group(1))
                       sys.exit(0)
