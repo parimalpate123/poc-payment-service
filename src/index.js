@@ -6,6 +6,7 @@
  */
 
 const express = require('express');
+const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -70,18 +71,36 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || !['USD', 'EUR', 'GBP'].includes(currency)) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'paypal', 'bank_transfer'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
+  // Simulate external payment gateway call
+  try {
+    await new Promise((resolve, reject) => {
+      setTimeout(() => {
+        if (Math.random() < 0.1) { // 10% chance of failure
+          reject(new Error('Payment gateway timeout'));
+        } else {
+          resolve();
+        }
+      }, 1000);
+    });
+  } catch (error) {
+    console.error('Payment gateway error:', error);
+    throw new Error('Payment processing failed: Gateway timeout');
+  }
+
   return {
-    id: `PAY-${Date.now()}`,
+    id: `PAY-${uuidv4()}`,
     amount,
     currency,
     paymentMethod,
