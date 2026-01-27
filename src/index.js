@@ -17,9 +17,19 @@ app.post('/api/v1/payments', async (req, res) => {
     const { amount, currency, paymentMethod } = req.body;
     
     // Validate input
-    if (!amount || !currency || !paymentMethod) {
+    if (!amount || amount <= 0 || typeof amount !== 'number') {
       return res.status(400).json({ 
-        error: 'Missing required fields: amount, currency, paymentMethod' 
+        error: 'Invalid amount: must be a positive number' 
+      });
+    }
+    if (!currency || typeof currency !== 'string' || currency.trim() === '') {
+      return res.status(400).json({ 
+        error: 'Invalid currency: must be a non-empty string' 
+      });
+    }
+    if (!paymentMethod || typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+      return res.status(400).json({ 
+        error: 'Invalid paymentMethod: must be a non-empty string' 
       });
     }
 
@@ -79,6 +89,17 @@ async function processPayment(amount, currency, paymentMethod) {
   
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Additional validation to ensure data integrity
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.trim() === '') {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+    throw new Error('Invalid payment method');
+  }
   
   return {
     id: `PAY-${Date.now()}`,
