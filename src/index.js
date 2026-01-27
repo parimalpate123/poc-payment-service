@@ -80,6 +80,17 @@ async function processPayment(amount, currency, paymentMethod) {
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // Additional validation and error handling
+  if (amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (!['USD', 'EUR', 'GBP'].includes(currency.toUpperCase())) {
+    throw new Error('Unsupported currency');
+  }
+  if (!['credit_card', 'debit_card', 'paypal'].includes(paymentMethod.toLowerCase())) {
+    throw new Error('Unsupported payment method');
+  }
+  
   return {
     id: `PAY-${Date.now()}`,
     amount,
