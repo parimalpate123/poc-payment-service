@@ -72,15 +72,22 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  // Validate input to prevent undefined variables
+  if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.trim() === '') {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+    throw new Error('Invalid payment method');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
+
+  // Process payment (simulated)
+  const paymentResult = {
     id: `PAY-${Date.now()}`,
     amount,
     currency,
@@ -88,23 +95,41 @@ async function processPayment(amount, currency, paymentMethod) {
     status: 'completed',
     timestamp: new Date().toISOString()
   };
+
+  // Check for null object references
+  if (!paymentResult || typeof paymentResult !== 'object') {
+    throw new Error('Payment processing failed');
+  }
+
+  return paymentResult;
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
+  // Validate input
+  if (typeof paymentId !== 'string' || paymentId.trim() === '') {
+    throw new Error('Invalid payment ID');
+  }
+
   // Simulate potential issues:
   // - Database query timeout
   // - Cache miss handling
-  
   await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
+
+  const paymentStatus = {
     id: paymentId,
     status: 'completed',
     amount: 100.00,
     currency: 'USD',
     timestamp: new Date().toISOString()
   };
+
+  // Check for null object references
+  if (!paymentStatus || typeof paymentStatus !== 'object') {
+    throw new Error('Failed to retrieve payment status');
+  }
+
+  return paymentStatus;
 }
 
 // Start server
