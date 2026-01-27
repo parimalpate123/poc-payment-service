@@ -229,6 +229,7 @@ jobs:
             -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.info.outputs.incident_id }}","pr_number":${{ steps.info.outputs.pr_number }},"status":"pr_review_started","message":"PR Review Agent is analyzing the pull request"}' || true
 
       - name: Run PR Review Agent
+        id: review
         uses: parimalpate123/pr-code-review-action@justbedrock
         with:
           github_token: ${{ secrets.PAT_TOKEN }}
@@ -270,6 +271,11 @@ jobs:
               # The action might post comments instead of submitting reviews
               REVIEW_STATE="COMMENTED"
               echo "✅ PR Review Agent posted comment(s), treating as review completed"
+            elif [ "${{ steps.review.outcome }}" = "success" ]; then
+              # The review action uses PAT_TOKEN, so comments are authored by the PAT owner
+              # (not a bot user). If the step succeeded, the review was completed.
+              REVIEW_STATE="COMMENTED"
+              echo "✅ PR Review Agent step succeeded, treating as review completed"
             fi
           fi
 
