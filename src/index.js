@@ -70,24 +70,44 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  // Validate input
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.length !== 3) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'debit_card', 'paypal'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
+  try {
+    // Simulate processing delay and potential timeout
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Payment gateway timeout'));
+      }, 5000);
+
+      setTimeout(() => {
+        clearTimeout(timeout);
+        resolve();
+      }, Math.random() * 6000);
+    });
+
+    return {
+      id: `PAY-${Date.now()}`,
+      amount,
+      currency,
+      paymentMethod,
+      status: 'completed',
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Payment processing error:', error);
+    throw error;
+  }
 }
 
 // Simulate payment status retrieval
