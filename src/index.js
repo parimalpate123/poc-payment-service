@@ -72,14 +72,20 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  // Validate input
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.trim() === '') {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+    throw new Error('Invalid payment method');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
-  
+
   return {
     id: `PAY-${Date.now()}`,
     amount,
@@ -92,12 +98,13 @@ async function processPayment(amount, currency, paymentMethod) {
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
+  // Validate input
+  if (typeof paymentId !== 'string' || paymentId.trim() === '') {
+    throw new Error('Invalid payment ID');
+  }
+
   await new Promise(resolve => setTimeout(resolve, 50));
-  
+
   return {
     id: paymentId,
     status: 'completed',
