@@ -72,21 +72,50 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.trim().length === 0) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || paymentMethod.trim().length === 0) {
+    throw new Error('Invalid payment method');
+  }
+
+  try {
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Simulate external payment gateway call
+    const gatewayResponse = await simulateGatewayCall(amount, currency, paymentMethod);
+    
+    return {
+      id: gatewayResponse.id,
+      amount: gatewayResponse.amount,
+      currency: gatewayResponse.currency,
+      paymentMethod: gatewayResponse.paymentMethod,
+      status: gatewayResponse.status,
+      timestamp: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    throw new Error('Payment processing failed: ' + error.message);
+  }
+}
+
+// Simulate external payment gateway call
+async function simulateGatewayCall(amount, currency, paymentMethod) {
+  // Simulate potential gateway issues
+  if (Math.random() < 0.1) {
+    throw new Error('Gateway timeout');
+  }
   
   return {
     id: `PAY-${Date.now()}`,
     amount,
     currency,
     paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
+    status: 'completed'
   };
 }
 
