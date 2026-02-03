@@ -17,10 +17,14 @@ app.post('/api/v1/payments', async (req, res) => {
     const { amount, currency, paymentMethod } = req.body;
     
     // Validate input
-    if (!amount || !currency || !paymentMethod) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: amount, currency, paymentMethod' 
-      });
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (!currency || typeof currency !== 'string' || currency.trim() === '') {
+      return res.status(400).json({ error: 'Invalid currency' });
+    }
+    if (!paymentMethod || typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+      return res.status(400).json({ error: 'Invalid paymentMethod' });
     }
 
     // Process payment
@@ -72,11 +76,16 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (!currency || typeof currency !== 'string' || currency.trim() === '') {
+    throw new Error('Invalid currency');
+  }
+  if (!paymentMethod || typeof paymentMethod !== 'string' || paymentMethod.trim() === '') {
+    throw new Error('Invalid paymentMethod');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
