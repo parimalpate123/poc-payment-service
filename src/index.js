@@ -11,6 +11,12 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 5000, // 5 seconds timeout
+};
+
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
   try {
@@ -20,6 +26,13 @@ app.post('/api/v1/payments', async (req, res) => {
     if (!amount || !currency || !paymentMethod) {
       return res.status(400).json({ 
         error: 'Missing required fields: amount, currency, paymentMethod' 
+      });
+    }
+
+    // Validate amount
+    if (typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({
+        error: 'Invalid amount: must be a positive number'
       });
     }
 
@@ -70,24 +83,42 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    // Simulate payment gateway API call
+    const response = await simulatePaymentGatewayCall(amount, currency, paymentMethod);
+
+    if (response.status === 'success') {
+      return {
+        id: `PAY-${Date.now()}`,
+        amount,
+        currency,
+        paymentMethod,
+        status: 'completed',
+        timestamp: new Date().toISOString()
+      };
+    } else {
+      throw new Error('Payment gateway declined the transaction');
+    }
+  } catch (error) {
+    console.error('Payment processing error:', error);
+    throw new Error('Payment processing failed: ' + error.message);
+  }
+}
+
+// Simulate payment gateway API call
+async function simulatePaymentGatewayCall(amount, currency, paymentMethod) {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      // Simulate 90% success rate
+      if (Math.random() < 0.9) {
+        resolve({ status: 'success' });
+      } else {
+        reject(new Error('Payment gateway timeout'));
+      }
+    }, Math.random() * paymentGatewayConfig.timeout);
+  });
 }
 
 // Simulate payment status retrieval
