@@ -6,10 +6,38 @@
  */
 
 const express = require('express');
+const promClient = require('prom-client');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Initialize Prometheus metrics
+const collectDefaultMetrics = promClient.collectDefaultMetrics;
+const Registry = promClient.Registry;
+const register = new Registry();
+collectDefaultMetrics({ register });
+
+// Create custom metrics
+const httpRequestDurationMicroseconds = new promClient.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'code'],
+  buckets: [0.1, 0.3, 0.5, 0.7, 1, 3, 5, 7, 10]
+});
+register.registerMetric(httpRequestDurationMicroseconds);
+
 app.use(express.json());
+
+// Middleware to measure request duration
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    httpRequestDurationMicroseconds
+      .labels(req.method, req.path, res.statusCode.toString())
+      .observe(duration / 1000);
+  });
+  next();
+});
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -107,9 +135,27 @@ async function getPaymentStatus(paymentId) {
   };
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+// Metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', register.contentType);
+    res.end(await register.metrics());
+  } catch (error) {
+    res.status(500).json({ error: 'Error collecting metrics' });
+  }
 });
+
+// Start server function
+const startServer = (port) => {
+  return new Promise((resolve) => {
+    const server = app.listen(port, () => {
+      console.log(`Payment service running on port ${server.address().port}`);
+      resolve(server);
+    });
+  });
+};
+
+// Export the app and startServer function
+module.exports = { app, startServer };
 
 module.exports = app;
