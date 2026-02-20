@@ -11,6 +11,64 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Lambda handler function
+exports.handler = async (event, context) => {
+  // Create a new express app for each Lambda invocation
+  const server = express();
+  
+  // Reuse existing route definitions
+  server.use(app);
+
+  // Convert API Gateway event to express request
+  const expressEvent = await createExpressEvent(event, context);
+
+  // Process the event with express
+  return new Promise((resolve, reject) => {
+    server(expressEvent, {
+      end: (responseBody) => {
+        resolve({
+          statusCode: expressEvent.res.statusCode,
+          headers: expressEvent.res.headers,
+          body: responseBody
+        });
+      }
+    });
+  });
+};
+
+// Helper function to create express event from Lambda event
+async function createExpressEvent(event, context) {
+  const req = {
+    method: event.httpMethod,
+    url: event.path,
+    headers: event.headers,
+    body: event.body,
+    params: event.pathParameters || {},
+    query: event.queryStringParameters || {}
+  };
+
+  return {
+    req,
+    res: {
+      statusCode: 200,
+      headers: {},
+      setHeader: (key, value) => {
+        this.headers[key] = value;
+      },
+      end: (data) => {
+        if (this.statusCode === 200 && !this.headers['Content-Type']) {
+          this.headers['Content-Type'] = 'application/json';
+        }
+        context.succeed({
+          statusCode: this.statusCode,
+          headers: this.headers,
+          body: data
+        });
+      }
+    }
+  };
+}
+
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
   try {
@@ -107,9 +165,9 @@ async function getPaymentStatus(paymentId) {
   };
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+// Remove server startup for Lambda
+// app.listen(PORT, () => {
+//   console.log(`Payment service running on port ${PORT}`);
+// });
 
 module.exports = app;
