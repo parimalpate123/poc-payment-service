@@ -1,0 +1,15 @@
+{
+  "FunctionName": "payment-service",
+  "Runtime": "nodejs14.x",
+  "Handler": "src/index.handler",
+  "Role": "arn:aws:iam::ACCOUNT_ID:role/payment-service-role",
+  "Environment": {
+    "Variables": {
+      "NODE_ENV": "production"
+    }
+  },
+  "TracingConfig": {
+    "Mode": "Active"
+  },
+  "Timeout": 30
+}
