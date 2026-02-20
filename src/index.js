@@ -70,41 +70,61 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Simulated database for storing payments
+const paymentsDb = new Map();
+
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  // Validate input
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.length !== 3) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'paypal', 'bank_transfer'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
+  // Simulate potential issues
+  const randomFactor = Math.random();
+  if (randomFactor < 0.1) {
+    throw new Error('Simulated database connection timeout');
+  } else if (randomFactor < 0.2) {
+    throw new Error('Simulated external payment gateway timeout');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
+
+  const paymentId = `PAY-${Date.now()}`;
+  const payment = {
+    id: paymentId,
     amount,
     currency,
     paymentMethod,
     status: 'completed',
     timestamp: new Date().toISOString()
   };
+
+  // Store payment in simulated database
+  paymentsDb.set(paymentId, payment);
+
+  return payment;
 }
 
-// Simulate payment status retrieval
+// Get payment status
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
+  // Simulate potential issues
+  if (Math.random() < 0.1) {
+    throw new Error('Simulated database query timeout');
+  }
+
+  // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+
+  // Retrieve payment from simulated database
+  return paymentsDb.get(paymentId) || null;
 }
 
 // Start server
