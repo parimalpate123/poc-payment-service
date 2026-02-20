@@ -6,6 +6,7 @@
  */
 
 const express = require('express');
+const { simulatePaymentGateway } = require('./paymentGateway');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -72,22 +73,30 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  if (typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (typeof currency !== 'string' || currency.length !== 3) {
+    throw new Error('Invalid currency');
+  }
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'debit_card', 'paypal'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
+  try {
+    const paymentResult = await simulatePaymentGateway(amount, currency, paymentMethod);
+    return {
+      id: paymentResult.id,
+      amount: paymentResult.amount,
+      currency: paymentResult.currency,
+      paymentMethod: paymentResult.paymentMethod,
+      status: paymentResult.status,
+      timestamp: paymentResult.timestamp
+    };
+  } catch (error) {
+    console.error('Payment gateway error:', error);
+    throw new Error('Payment processing failed: ' + error.message);
+  }
 }
 
 // Simulate payment status retrieval
