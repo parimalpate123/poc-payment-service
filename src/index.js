@@ -92,19 +92,13 @@ async function processPayment(amount, currency, paymentMethod) {
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const response = await axios.get(`/payment-status/${paymentId}`, paymentGatewayConfig);
+    return response.data;
+  } catch (error) {
+    console.error(`Error fetching payment status for ${paymentId}:`, error);
+    throw new Error(`Failed to fetch payment status: ${error.message}`);
+  }
 }
 
 // Start server
