@@ -61,13 +61,29 @@ app.get('/api/v1/payments/:paymentId', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy',
-    service: 'payment-service',
-    timestamp: new Date().toISOString()
-  });
+// Enhanced health check endpoint
+app.get('/health', async (req, res) => {
+  try {
+    const paymentStatus = await testPaymentProcessing();
+    const dependenciesStatus = await checkDependencies();
+    
+    res.status(200).json({ 
+      status: 'healthy',
+      service: 'payment-service',
+      version: '1.0.1',
+      timestamp: new Date().toISOString(),
+      paymentProcessing: paymentStatus,
+      dependencies: dependenciesStatus
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      service: 'payment-service',
+      version: '1.0.1',
+      timestamp: new Date().toISOString(),
+      error: error.message
+    });
+  }
 });
 
 // Simulate payment processing
@@ -111,5 +127,26 @@ async function getPaymentStatus(paymentId) {
 app.listen(PORT, () => {
   console.log(`Payment service running on port ${PORT}`);
 });
+
+// Test payment processing capability
+async function testPaymentProcessing() {
+  try {
+    await processPayment(1.00, 'USD', 'test');
+    return 'operational';
+  } catch (error) {
+    return 'failed';
+  }
+}
+
+// Simulate checking critical dependencies
+async function checkDependencies() {
+  // In a real scenario, you would check actual dependencies
+  // This is a simplified simulation
+  return {
+    database: 'connected',
+    cache: 'connected',
+    paymentGateway: 'operational'
+  };
+}
 
 module.exports = app;
