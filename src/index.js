@@ -6,8 +6,20 @@
  */
 
 const express = require('express');
+const winston = require('winston');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Add Winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  defaultMeta: { service: 'payment-service' },
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: '/tmp/payment-service.log' })
+  ]
+});
 
 app.use(express.json());
 
@@ -18,14 +30,17 @@ app.post('/api/v1/payments', async (req, res) => {
     
     // Validate input
     if (!amount || !currency || !paymentMethod) {
+      logger.warn('Missing required fields', { amount, currency, paymentMethod });
       return res.status(400).json({ 
         error: 'Missing required fields: amount, currency, paymentMethod' 
       });
     }
 
+    logger.info('Processing payment', { amount, currency, paymentMethod });
     // Process payment
     const paymentResult = await processPayment(amount, currency, paymentMethod);
     
+    logger.info('Payment processed successfully', { paymentId: paymentResult.id });
     res.status(200).json({
       success: true,
       paymentId: paymentResult.id,
@@ -33,7 +48,7 @@ app.post('/api/v1/payments', async (req, res) => {
       status: paymentResult.status
     });
   } catch (error) {
-    console.error('Payment processing error:', error);
+    logger.error('Payment processing error', { error: error.message });
     res.status(500).json({ 
       error: 'Payment processing failed',
       message: error.message 
@@ -45,15 +60,18 @@ app.post('/api/v1/payments', async (req, res) => {
 app.get('/api/v1/payments/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
+    logger.info('Fetching payment status', { paymentId });
     const payment = await getPaymentStatus(paymentId);
     
     if (!payment) {
+      logger.warn('Payment not found', { paymentId });
       return res.status(404).json({ error: 'Payment not found' });
     }
     
+    logger.info('Payment status retrieved', { paymentId, status: payment.status });
     res.status(200).json(payment);
   } catch (error) {
-    console.error('Error fetching payment:', error);
+    logger.error('Error fetching payment', { paymentId: req.params.paymentId, error: error.message });
     res.status(500).json({ 
       error: 'Failed to fetch payment status',
       message: error.message 
@@ -63,6 +81,7 @@ app.get('/api/v1/payments/:paymentId', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  logger.info('Health check requested');
   res.status(200).json({ 
     status: 'healthy',
     service: 'payment-service',
@@ -72,18 +91,21 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  logger.debug('Simulating payment processing', { amount, currency, paymentMethod });
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
-  return {
+  const result = {
     id: `PAY-${Date.now()}`,
     amount,
     currency,
+    paymentMethod,
+    status: 'completed',
+    timestamp: new Date().toISOString()
+  };
+  logger.debug('Payment processing simulation complete', result);
+  return result;
+}
     paymentMethod,
     status: 'completed',
     timestamp: new Date().toISOString()
@@ -109,7 +131,7 @@ async function getPaymentStatus(paymentId) {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+  logger.info(`Payment service running on port ${PORT}`);
 });
 
 module.exports = app;
