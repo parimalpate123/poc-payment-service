@@ -6,10 +6,21 @@
  */
 
 const express = require('express');
+const axios = require('axios');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 0;
 
 app.use(express.json());
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 5000,
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY || 'default-key'}` }
+};
+
+// Simulated database for payment status
+const paymentDatabase = new Map();
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -70,46 +81,39 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const response = await axios.post('/process', {
+      amount,
+      currency,
+      paymentMethod
+    }, paymentGatewayConfig);
+
+    const paymentResult = response.data;
+    paymentDatabase.set(paymentResult.id, paymentResult);
+
+    return paymentResult;
+  } catch (error) {
+    if (error.response) {
+      throw { status: error.response.status, message: error.response.data.message || 'Payment gateway error' };
+    } else if (error.request) {
+      throw { status: 504, message: 'Payment gateway timeout' };
+    } else {
+      throw { status: 500, message: 'Error processing payment' };
+    }
+  }
 }
 
-// Simulate payment status retrieval
+// Get payment status
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  return paymentDatabase.get(paymentId) || null;
 }
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  const address = server.address();
+  console.log(`Payment service running on port ${address.port}`);
 });
 
 module.exports = app;
