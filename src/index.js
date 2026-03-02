@@ -6,10 +6,19 @@
  */
 
 const express = require('express');
+const { Pool } = require('pg');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Database connection pool configuration
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  max: 20, // maximum number of clients in the pool
+  idleTimeoutMillis: 30000, // how long a client is allowed to remain idle before being closed
+  connectionTimeoutMillis: 2000, // how long to wait when connecting a new client
+});
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,39 +81,48 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await client.query(
+      'INSERT INTO payments(amount, currency, payment_method, status) VALUES($1, $2, $3, $4) RETURNING *',
+      [amount, currency, paymentMethod, 'completed']
+    );
+    await client.query('COMMIT');
+    return {
+      id: result.rows[0].id,
+      amount: result.rows[0].amount,
+      currency: result.rows[0].currency,
+      paymentMethod: result.rows[0].payment_method,
+      status: result.rows[0].status,
+      timestamp: result.rows[0].created_at
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  const client = await pool.connect();
+  try {
+    const result = await client.query('SELECT * FROM payments WHERE id = $1', [paymentId]);
+    if (result.rows.length === 0) {
+      return null;
+    }
+    return {
+      id: result.rows[0].id,
+      amount: result.rows[0].amount,
+      currency: result.rows[0].currency,
+      status: result.rows[0].status,
+      timestamp: result.rows[0].created_at
+    };
+  } finally {
+    client.release();
+  }
 }
 
 // Start server
