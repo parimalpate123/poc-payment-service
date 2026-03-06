@@ -6,10 +6,23 @@
  */
 
 const express = require('express');
+const winston = require('winston');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Configure logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  defaultMeta: { service: 'payment-service' },
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -33,7 +46,7 @@ app.post('/api/v1/payments', async (req, res) => {
       status: paymentResult.status
     });
   } catch (error) {
-    console.error('Payment processing error:', error);
+    logger.error('Payment processing error:', error);
     res.status(500).json({ 
       error: 'Payment processing failed',
       message: error.message 
@@ -53,7 +66,7 @@ app.get('/api/v1/payments/:paymentId', async (req, res) => {
     
     res.status(200).json(payment);
   } catch (error) {
-    console.error('Error fetching payment:', error);
+    logger.error('Error fetching payment:', error);
     res.status(500).json({ 
       error: 'Failed to fetch payment status',
       message: error.message 
@@ -72,44 +85,66 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  logger.info(`Processing payment: amount=${amount}, currency=${currency}, paymentMethod=${paymentMethod}`);
+
+  // Input validation
+  if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+
+  if (typeof currency !== 'string' || currency.trim().length !== 3) {
+    throw new Error('Invalid currency');
+  }
+
+  if (typeof paymentMethod !== 'string' || !['credit_card', 'debit_card', 'paypal'].includes(paymentMethod)) {
+    throw new Error('Invalid payment method');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  const paymentId = `PAY-${Date.now()}`;
+  const status = 'completed';
+  const timestamp = new Date().toISOString();
+
+  logger.info(`Payment processed successfully: id=${paymentId}, status=${status}`);
+
   return {
-    id: `PAY-${Date.now()}`,
+    id: paymentId,
     amount,
     currency,
     paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
+    status,
+    timestamp
   };
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
+  logger.info(`Fetching payment status for id=${paymentId}`);
+
+  if (typeof paymentId !== 'string' || !paymentId.startsWith('PAY-')) {
+    throw new Error('Invalid payment ID');
+  }
+
   await new Promise(resolve => setTimeout(resolve, 50));
   
-  return {
+  const payment = {
     id: paymentId,
     status: 'completed',
     amount: 100.00,
     currency: 'USD',
     timestamp: new Date().toISOString()
   };
+
+  logger.info(`Payment status fetched: id=${paymentId}, status=${payment.status}`);
+
+  return payment;
 }
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+  logger.info(`Payment service running on port ${PORT}`);
 });
 
 module.exports = app;
