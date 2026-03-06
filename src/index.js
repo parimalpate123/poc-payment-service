@@ -26,6 +26,13 @@ app.post('/api/v1/payments', async (req, res) => {
     // Process payment
     const paymentResult = await processPayment(amount, currency, paymentMethod);
     
+    if (!paymentResult) {
+      return res.status(500).json({
+        error: 'Payment processing failed',
+        message: 'Unable to process payment'
+      });
+    }
+
     res.status(200).json({
       success: true,
       paymentId: paymentResult.id,
@@ -72,11 +79,10 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  if (amount == null || currency == null || paymentMethod == null) {
+    throw new Error('Invalid payment data: amount, currency, and paymentMethod are required');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
