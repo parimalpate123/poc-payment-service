@@ -17,10 +17,14 @@ app.post('/api/v1/payments', async (req, res) => {
     const { amount, currency, paymentMethod } = req.body;
     
     // Validate input
-    if (!amount || !currency || !paymentMethod) {
-      return res.status(400).json({ 
-        error: 'Missing required fields: amount, currency, paymentMethod' 
-      });
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ error: 'Invalid amount' });
+    }
+    if (!currency || typeof currency !== 'string' || currency.length !== 3) {
+      return res.status(400).json({ error: 'Invalid currency' });
+    }
+    if (!paymentMethod || typeof paymentMethod !== 'string') {
+      return res.status(400).json({ error: 'Invalid payment method' });
     }
 
     // Process payment
@@ -72,22 +76,42 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  if (!amount || !currency || !paymentMethod) {
+    throw new Error('Missing required payment information');
+  }
+
+  try {
+    // Simulate processing delay
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    const paymentId = `PAY-${Date.now()}`;
+    const status = 'completed';
+    const timestamp = new Date().toISOString();
+
+    // Perform additional validation or processing here
+    // For example, you could check if the payment method is valid
+    const validPaymentMethods = ['credit_card', 'debit_card', 'paypal'];
+    if (!validPaymentMethods.includes(paymentMethod)) {
+      throw new Error('Invalid payment method');
+    }
+
+    // Simulate a potential error condition (e.g., 5% chance of failure)
+    if (Math.random() < 0.05) {
+      throw new Error('Payment gateway error');
+    }
+
+    return {
+      id: paymentId,
+      amount,
+      currency,
+      paymentMethod,
+      status,
+      timestamp
+    };
+  } catch (error) {
+    console.error('Error in processPayment:', error);
+    throw new Error(`Payment processing failed: ${error.message}`);
+  }
 }
 
 // Simulate payment status retrieval
