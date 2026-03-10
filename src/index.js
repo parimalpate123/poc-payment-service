@@ -6,8 +6,34 @@
  */
 
 const express = require('express');
+const mongoose = require('mongoose');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Database connection configuration
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/payments';
+const dbOptions = {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+};
+
+// Connect to MongoDB
+mongoose.connect(MONGO_URI, dbOptions)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
+
+// Define Payment schema
+const PaymentSchema = new mongoose.Schema({
+  amount: Number,
+  currency: String,
+  paymentMethod: String,
+  status: String,
+  timestamp: Date
+});
+
+const Payment = mongoose.model('Payment', PaymentSchema);
 
 app.use(express.json());
 
@@ -72,39 +98,48 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const payment = new Payment({
+      amount,
+      currency,
+      paymentMethod,
+      status: 'completed',
+      timestamp: new Date()
+    });
+
+    const savedPayment = await payment.save();
+    return {
+      id: savedPayment._id,
+      amount: savedPayment.amount,
+      currency: savedPayment.currency,
+      paymentMethod: savedPayment.paymentMethod,
+      status: savedPayment.status,
+      timestamp: savedPayment.timestamp
+    };
+  } catch (error) {
+    console.error('Error processing payment:', error);
+    throw new Error('Payment processing failed');
+  }
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  try {
+    const payment = await Payment.findById(paymentId);
+    if (!payment) {
+      return null;
+    }
+    return {
+      id: payment._id,
+      status: payment.status,
+      amount: payment.amount,
+      currency: payment.currency,
+      timestamp: payment.timestamp
+    };
+  } catch (error) {
+    console.error('Error fetching payment status:', error);
+    throw new Error('Failed to fetch payment status');
+  }
 }
 
 // Start server
