@@ -6,10 +6,20 @@
  */
 
 const express = require('express');
+const retry = require('async-retry');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Retry configuration
+const retryConfig = {
+  retries: 3,
+  factor: 2,
+  minTimeout: 1000,
+  maxTimeout: 5000,
+  randomize: true,
+};
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -23,8 +33,17 @@ app.post('/api/v1/payments', async (req, res) => {
       });
     }
 
-    // Process payment
-    const paymentResult = await processPayment(amount, currency, paymentMethod);
+    // Process payment with retry logic
+    const paymentResult = await retry(async (bail) => {
+      try {
+        return await processPayment(amount, currency, paymentMethod);
+      } catch (error) {
+        if (error.code === 'ECONNABORTED') {
+          throw error; // Retry on timeout
+        }
+        bail(error); // Don't retry for other errors
+      }
+    }, retryConfig);
     
     res.status(200).json({
       success: true,
@@ -45,7 +64,18 @@ app.post('/api/v1/payments', async (req, res) => {
 app.get('/api/v1/payments/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
-    const payment = await getPaymentStatus(paymentId);
+    
+    // Get payment status with retry logic
+    const payment = await retry(async (bail) => {
+      try {
+        return await getPaymentStatus(paymentId);
+      } catch (error) {
+        if (error.code === 'ECONNABORTED') {
+          throw error; // Retry on timeout
+        }
+        bail(error); // Don't retry for other errors
+      }
+    }, retryConfig);
     
     if (!payment) {
       return res.status(404).json({ error: 'Payment not found' });
@@ -80,6 +110,13 @@ async function processPayment(amount, currency, paymentMethod) {
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // Simulate timeout error (20% chance)
+  if (Math.random() < 0.2) {
+    const error = new Error('Database connection timeout');
+    error.code = 'ECONNABORTED';
+    throw error;
+  }
+  
   return {
     id: `PAY-${Date.now()}`,
     amount,
@@ -97,6 +134,13 @@ async function getPaymentStatus(paymentId) {
   // - Cache miss handling
   
   await new Promise(resolve => setTimeout(resolve, 50));
+  
+  // Simulate timeout error (20% chance)
+  if (Math.random() < 0.2) {
+    const error = new Error('Database query timeout');
+    error.code = 'ECONNABORTED';
+    throw error;
+  }
   
   return {
     id: paymentId,
