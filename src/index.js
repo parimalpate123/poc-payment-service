@@ -6,8 +6,24 @@
  */
 
 const express = require('express');
+const mysql = require('mysql2/promise');
+const { promisify } = require('util');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Database connection pool configuration
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'user',
+  password: process.env.DB_PASSWORD || 'password',
+  database: process.env.DB_NAME || 'payments',
+  connectionLimit: 10,
+  queueLimit: 0,
+  connectTimeout: 10000, // 10 seconds
+  acquireTimeout: 10000, // 10 seconds
+};
+
+const pool = mysql.createPool(dbConfig);
 
 app.use(express.json());
 
@@ -72,39 +88,66 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const retries = 3;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        const [result] = await connection.query(
+          'INSERT INTO payments (amount, currency, payment_method, status) VALUES (?, ?, ?, ?)',
+          [amount, currency, paymentMethod, 'completed']
+        );
+        await connection.commit();
+        return {
+          id: `PAY-${result.insertId}`,
+          amount,
+          currency,
+          paymentMethod,
+          status: 'completed',
+          timestamp: new Date().toISOString()
+        };
+      } catch (error) {
+        await connection.rollback();
+        throw error;
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+    }
+  }
 }
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
+  const retries = 3;
+  for (let i = 0; i < retries; i++) {
+    try {
+      const connection = await pool.getConnection();
+      try {
+        const [rows] = await connection.query(
+          'SELECT * FROM payments WHERE id = ?',
+          [paymentId.replace('PAY-', '')]
+        );
+        if (rows.length === 0) return null;
+        const payment = rows[0];
+        return {
+          id: `PAY-${payment.id}`,
+          status: payment.status,
+          amount: payment.amount,
+          currency: payment.currency,
+          timestamp: payment.created_at.toISOString()
+        };
+      } finally {
+        connection.release();
+      }
+    } catch (error) {
+      if (i === retries - 1) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+    }
+  }
 }
 
 // Start server
