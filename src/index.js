@@ -6,10 +6,19 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const retry = require('async-retry');
+
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 30000,
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY}` }
+};
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -70,46 +79,75 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment using payment gateway
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid amount');
+  }
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('Invalid currency');
+  }
+  if (!paymentMethod || typeof paymentMethod !== 'string') {
+    throw new Error('Invalid payment method');
+  }
+
+  return retry(async (bail) => {
+    try {
+      const response = await axios.post('/process-payment', {
+        amount,
+        currency,
+        paymentMethod
+      }, paymentGatewayConfig);
+
+      return {
+        id: response.data.id,
+        amount: response.data.amount,
+        currency: response.data.currency,
+        paymentMethod: response.data.paymentMethod,
+        status: response.data.status,
+        timestamp: response.data.timestamp
+      };
+    } catch (error) {
+      if (error.response && error.response.status >= 400 && error.response.status < 500) {
+        bail(new Error(`Payment failed: ${error.response.data.message}`));
+        return;
+      }
+      throw error;
+    }
+  }, {
+    retries: 3,
+    factor: 2,
+    minTimeout: 1000,
+    maxTimeout: 5000,
+  });
 }
 
-// Simulate payment status retrieval
+// Get payment status from payment gateway
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
-  
-  await new Promise(resolve => setTimeout(resolve, 50));
-  
-  return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
-  };
-}
+  if (!paymentId || typeof paymentId !== 'string') {
+    throw new Error('Invalid payment ID');
+  }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+  return retry(async (bail) => {
+    try {
+      const response = await axios.get(`/payment-status/${paymentId}`, paymentGatewayConfig);
+      return response.data;
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        return null;
+      }
+      if (error.response && error.response.status >= 400 && error.response.status < 500) {
+        bail(new Error(`Failed to fetch payment status: ${error.response.data.message}`));
+        return;
+      }
+      throw error;
+    }
+  }, {
+    retries: 3,
+    factor: 2,
+    minTimeout: 1000,
+    maxTimeout: 5000,
+  });
+}
 
 module.exports = app;
