@@ -6,10 +6,50 @@
  */
 
 const express = require('express');
+const mysql = require('mysql2/promise');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Database connection pool configuration
+const dbConfig = {
+  host: process.env.DB_HOST || 'localhost',
+  user: process.env.DB_USER || 'user',
+  password: process.env.DB_PASSWORD || 'password',
+  database: process.env.DB_NAME || 'payments',
+  connectionLimit: 10,
+  connectTimeout: 10000, // 10 seconds
+  acquireTimeout: 10000, // 10 seconds
+  timeout: 10000, // 10 seconds
+};
+
+const pool = mysql.createPool(dbConfig);
+
+// Retry configuration
+const maxRetries = 3;
+const retryDelay = 1000; // 1 second
+
+// Helper function for database queries with retry logic
+async function executeQuery(query, params = []) {
+  let retries = 0;
+  while (retries < maxRetries) {
+    try {
+      const [results] = await pool.execute(query, params);
+      return results;
+    } catch (error) {
+      if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+        retries++;
+        if (retries >= maxRetries) {
+          throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -72,16 +112,13 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
+  const query = 'INSERT INTO payments (amount, currency, payment_method, status) VALUES (?, ?, ?, ?)';
+  const params = [amount, currency, paymentMethod, 'completed'];
   
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const result = await executeQuery(query, params);
   
   return {
-    id: `PAY-${Date.now()}`,
+    id: result.insertId,
     amount,
     currency,
     paymentMethod,
@@ -92,18 +129,22 @@ async function processPayment(amount, currency, paymentMethod) {
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
+  const query = 'SELECT * FROM payments WHERE id = ?';
+  const params = [paymentId];
   
-  await new Promise(resolve => setTimeout(resolve, 50));
+  const results = await executeQuery(query, params);
   
+  if (results.length === 0) {
+    return null;
+  }
+  
+  const payment = results[0];
   return {
-    id: paymentId,
-    status: 'completed',
-    amount: 100.00,
-    currency: 'USD',
-    timestamp: new Date().toISOString()
+    id: payment.id,
+    status: payment.status,
+    amount: payment.amount,
+    currency: payment.currency,
+    timestamp: payment.created_at
   };
 }
 
