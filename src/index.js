@@ -6,8 +6,21 @@
  */
 
 const express = require('express');
+const winston = require('winston');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Configure Winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  defaultMeta: { service: 'payment-service' },
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+});
 
 app.use(express.json());
 
@@ -33,7 +46,7 @@ app.post('/api/v1/payments', async (req, res) => {
       status: paymentResult.status
     });
   } catch (error) {
-    console.error('Payment processing error:', error);
+    logger.error('Payment processing error:', { error: error.message, stack: error.stack });
     res.status(500).json({ 
       error: 'Payment processing failed',
       message: error.message 
@@ -53,7 +66,7 @@ app.get('/api/v1/payments/:paymentId', async (req, res) => {
     
     res.status(200).json(payment);
   } catch (error) {
-    console.error('Error fetching payment:', error);
+    logger.error('Error fetching payment:', { error: error.message, stack: error.stack });
     res.status(500).json({ 
       error: 'Failed to fetch payment status',
       message: error.message 
@@ -109,7 +122,7 @@ async function getPaymentStatus(paymentId) {
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+  logger.info(`Payment service running on port ${PORT}`);
 });
 
 module.exports = app;
