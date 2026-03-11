@@ -6,8 +6,22 @@
  */
 
 const express = require('express');
+const winston = require('winston');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Configure Winston logger
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.Console(),
+    new winston.transports.File({ filename: 'payment-service.log' })
+  ]
+});
 
 app.use(express.json());
 
@@ -18,14 +32,17 @@ app.post('/api/v1/payments', async (req, res) => {
     
     // Validate input
     if (!amount || !currency || !paymentMethod) {
+      logger.warn('Missing required fields in payment request', { amount, currency, paymentMethod });
       return res.status(400).json({ 
         error: 'Missing required fields: amount, currency, paymentMethod' 
       });
     }
 
+    logger.info('Processing payment', { amount, currency, paymentMethod });
     // Process payment
     const paymentResult = await processPayment(amount, currency, paymentMethod);
     
+    logger.info('Payment processed successfully', { paymentId: paymentResult.id, status: paymentResult.status });
     res.status(200).json({
       success: true,
       paymentId: paymentResult.id,
@@ -33,7 +50,7 @@ app.post('/api/v1/payments', async (req, res) => {
       status: paymentResult.status
     });
   } catch (error) {
-    console.error('Payment processing error:', error);
+    logger.error('Payment processing error:', error);
     res.status(500).json({ 
       error: 'Payment processing failed',
       message: error.message 
@@ -45,15 +62,18 @@ app.post('/api/v1/payments', async (req, res) => {
 app.get('/api/v1/payments/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
+    logger.info('Fetching payment status', { paymentId });
     const payment = await getPaymentStatus(paymentId);
     
     if (!payment) {
+      logger.warn('Payment not found', { paymentId });
       return res.status(404).json({ error: 'Payment not found' });
     }
     
+    logger.info('Payment status retrieved', { paymentId, status: payment.status });
     res.status(200).json(payment);
   } catch (error) {
-    console.error('Error fetching payment:', error);
+    logger.error('Error fetching payment:', error);
     res.status(500).json({ 
       error: 'Failed to fetch payment status',
       message: error.message 
@@ -63,6 +83,7 @@ app.get('/api/v1/payments/:paymentId', async (req, res) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
+  logger.info('Health check requested');
   res.status(200).json({ 
     status: 'healthy',
     service: 'payment-service',
@@ -77,10 +98,11 @@ async function processPayment(amount, currency, paymentMethod) {
   // - External payment gateway timeout
   // - Invalid payment method handling
   
+  logger.debug('Simulating payment processing', { amount, currency, paymentMethod });
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
-  return {
+  const result = {
     id: `PAY-${Date.now()}`,
     amount,
     currency,
@@ -88,6 +110,8 @@ async function processPayment(amount, currency, paymentMethod) {
     status: 'completed',
     timestamp: new Date().toISOString()
   };
+  logger.debug('Payment processing simulation completed', result);
+  return result;
 }
 
 // Simulate payment status retrieval
@@ -96,20 +120,23 @@ async function getPaymentStatus(paymentId) {
   // - Database query timeout
   // - Cache miss handling
   
+  logger.debug('Simulating payment status retrieval', { paymentId });
   await new Promise(resolve => setTimeout(resolve, 50));
   
-  return {
+  const result = {
     id: paymentId,
     status: 'completed',
     amount: 100.00,
     currency: 'USD',
     timestamp: new Date().toISOString()
   };
+  logger.debug('Payment status retrieval simulation completed', result);
+  return result;
 }
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
+  logger.info(`Payment service running on port ${PORT}`);
 });
 
 module.exports = app;
