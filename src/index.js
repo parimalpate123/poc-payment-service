@@ -6,10 +6,18 @@
  */
 
 const express = require('express');
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
+
+// Payment gateway configuration
+const paymentGatewayConfig = {
+  baseURL: process.env.PAYMENT_GATEWAY_URL || 'https://api.payment-gateway.com',
+  timeout: 5000,
+  headers: { 'Authorization': `Bearer ${process.env.PAYMENT_GATEWAY_API_KEY || 'default-key'}` }
+};
 
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
@@ -70,24 +78,31 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  if (!amount || !currency || !paymentMethod) {
+    throw new Error('Missing required payment information');
+  }
+
+  try {
+    const response = await axios.post('/process', {
+      amount,
+      currency,
+      paymentMethod
+    }, paymentGatewayConfig);
+
+    return {
+      id: response.data.id,
+      amount: response.data.amount,
+      currency: response.data.currency,
+      paymentMethod: response.data.paymentMethod,
+      status: response.data.status,
+      timestamp: response.data.timestamp || new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('Payment gateway error:', error.message);
+    throw new Error('Payment processing failed');
+  }
 }
 
 // Simulate payment status retrieval
@@ -112,4 +127,4 @@ app.listen(PORT, () => {
   console.log(`Payment service running on port ${PORT}`);
 });
 
-module.exports = app;
+module.exports = { app, processPayment };
