@@ -72,17 +72,28 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
+  console.log(`Processing payment: amount=${amount}, currency=${currency}, method=${paymentMethod}`);
   
+  // Validate input parameters
+  if (amount === null || amount === undefined || isNaN(parseFloat(amount))) {
+    throw new Error('Invalid amount');
+  }
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('Invalid currency');
+  }
+  if (!paymentMethod || typeof paymentMethod !== 'string') {
+    throw new Error('Invalid payment method');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  const paymentId = `PAY-${Date.now()}`;
+  console.log(`Payment processed successfully: ${paymentId}`);
+
   return {
-    id: `PAY-${Date.now()}`,
-    amount,
+    id: paymentId,
+    amount: parseFloat(amount),
     currency,
     paymentMethod,
     status: 'completed',
