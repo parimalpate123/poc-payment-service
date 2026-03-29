@@ -70,19 +70,25 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
+// Process payment with improved error handling and input validation
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
+  // Validate input parameters
+  if (amount === null || amount === undefined || isNaN(amount)) {
+    throw new Error('Invalid amount');
+  }
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('Invalid currency');
+  }
+  if (!paymentMethod || typeof paymentMethod !== 'string') {
+    throw new Error('Invalid payment method');
+  }
+
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
   return {
     id: `PAY-${Date.now()}`,
-    amount,
+    amount: parseFloat(amount),
     currency,
     paymentMethod,
     status: 'completed',
