@@ -72,10 +72,9 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
+  if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+    throw new Error('Invalid amount: Amount must be a positive number');
+  }
   
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
