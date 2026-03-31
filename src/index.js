@@ -6,13 +6,29 @@
  */
 
 const express = require('express');
+const axios = require('axios');
+const { default: rateLimit } = require('express-rate-limit');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Configure rate limiter
+const aiModelLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests to AI model API, please try again later.'
+});
+
+// AI model API configuration
+const aiModelConfig = {
+  baseURL: process.env.AI_MODEL_API_URL || 'https://api.ai-model.com',
+  timeout: 5000,
+  headers: { 'Authorization': `Bearer ${process.env.AI_MODEL_API_KEY}` }
+};
+
 // Payment processing endpoint
-app.post('/api/v1/payments', async (req, res) => {
+app.post('/api/v1/payments', aiModelLimiter, async (req, res) => {
   try {
     const { amount, currency, paymentMethod } = req.body;
     
@@ -72,22 +88,42 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
-  
-  // Simulate processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  return {
-    id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
-    status: 'completed',
-    timestamp: new Date().toISOString()
-  };
+  const maxRetries = 3;
+  let retries = 0;
+
+  while (retries < maxRetries) {
+    try {
+      // Simulate AI model API call
+      const aiModelResponse = await axios.post(`${aiModelConfig.baseURL}/process`, {
+        amount,
+        currency,
+        paymentMethod
+      }, {
+        headers: aiModelConfig.headers,
+        timeout: aiModelConfig.timeout
+      });
+
+      // Process the AI model response
+      return {
+        id: `PAY-${Date.now()}`,
+        amount,
+        currency,
+        paymentMethod,
+        status: 'completed',
+        aiModelResult: aiModelResponse.data,
+        timestamp: new Date().toISOString()
+      };
+    } catch (error) {
+      retries++;
+      if (error.response && error.response.status === 429) {
+        // Rate limit error, wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000 * retries));
+      } else if (retries === maxRetries) {
+        // Max retries reached, throw error
+        throw new Error(`Payment processing failed after ${maxRetries} retries: ${error.message}`);
+      }
+    }
+  }
 }
 
 // Simulate payment status retrieval
