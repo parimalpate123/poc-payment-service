@@ -6,8 +6,14 @@
  */
 
 const express = require('express');
+const AWS = require('aws-sdk');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Configure CloudWatch logs
+const cloudwatchlogs = new AWS.CloudWatchLogs();
+const logGroupName = '/aws/lambda/payment-service';
+const logStreamName = `${new Date().toISOString().split('T')[0]}-${process.env.AWS_LAMBDA_FUNCTION_VERSION}`;
 
 app.use(express.json());
 
@@ -110,6 +116,18 @@ async function getPaymentStatus(paymentId) {
 // Start server
 app.listen(PORT, () => {
   console.log(`Payment service running on port ${PORT}`);
+  
+  // Create log stream
+  cloudwatchlogs.createLogStream({
+    logGroupName: logGroupName,
+    logStreamName: logStreamName
+  }, (err) => {
+    if (err) {
+      console.error('Error creating CloudWatch log stream:', err);
+    } else {
+      console.log('CloudWatch log stream created successfully');
+    }
+  });
 });
 
 module.exports = app;
