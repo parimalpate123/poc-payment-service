@@ -14,17 +14,41 @@ app.use(express.json());
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
   try {
-    const { amount, currency, paymentMethod } = req.body;
+    const { amount, currency, paymentMethod, customerId, order } = req.body;
     
-    // Validate input
-    if (!amount || !currency || !paymentMethod) {
+    // Comprehensive input validation with null checks
+    if (!amount || typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({ 
-        error: 'Missing required fields: amount, currency, paymentMethod' 
+        error: 'Invalid amount: must be a positive number' 
       });
     }
 
-    // Process payment
-    const paymentResult = await processPayment(amount, currency, paymentMethod);
+    if (!currency || typeof currency !== 'string') {
+      return res.status(400).json({ 
+        error: 'Invalid currency: must be a valid string' 
+      });
+    }
+
+    if (!paymentMethod || typeof paymentMethod !== 'string') {
+      return res.status(400).json({ 
+        error: 'Invalid paymentMethod: must be a valid string' 
+      });
+    }
+
+    if (!customerId || typeof customerId !== 'string') {
+      return res.status(400).json({ 
+        error: 'Invalid customerId: must be a valid string' 
+      });
+    }
+
+    // Process payment with validated data
+    const paymentResult = await processPayment({
+      amount,
+      currency,
+      paymentMethod,
+      customerId,
+      order: order || null
+    });
     
     res.status(200).json({
       success: true,
@@ -45,6 +69,11 @@ app.post('/api/v1/payments', async (req, res) => {
 app.get('/api/v1/payments/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
+    
+    // Validate paymentId
+    if (!paymentId || typeof paymentId !== 'string') {
+      return res.status(400).json({ error: 'Invalid payment ID' });
+    }
     const payment = await getPaymentStatus(paymentId);
     
     if (!payment) {
@@ -70,46 +99,88 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Simulate payment processing
-async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
+// Simulate payment processing with proper null handling
+async function processPayment(paymentData) {
+  // Validate payment data object
+  if (!paymentData || typeof paymentData !== 'object') {
+    throw new Error('Invalid payment data: payment object is null or invalid');
+  }
+
+  const { amount, currency, paymentMethod, customerId, order } = paymentData;
+
+  // Critical null checks for payment object initialization
+  if (!amount || typeof amount !== 'number' || amount <= 0) {
+    throw new Error('Invalid payment amount');
+  }
+
+  if (!currency || typeof currency !== 'string') {
+    throw new Error('Invalid currency');
+  }
+
+  if (!paymentMethod || typeof paymentMethod !== 'string') {
+    throw new Error('Invalid payment method');
+  }
+
+  if (!customerId || typeof customerId !== 'string') {
+    throw new Error('Invalid customer ID');
+  }
+
+  // Validate order object if provided
+  if (order !== null && order !== undefined) {
+    if (typeof order !== 'object') {
+      throw new Error('Invalid order: must be an object');
+    }
+    
+    // Validate order amount to prevent division by zero
+    if (order.amount !== undefined && order.amount !== null) {
+      if (typeof order.amount !== 'number' || order.amount <= 0) {
+        throw new Error('Invalid order amount: must be a positive number');
+      }
+    }
+  }
   
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // Return properly initialized payment object
   return {
     id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
+    amount: amount,
+    currency: currency,
+    paymentMethod: paymentMethod,
+    customerId: customerId,
+    order: order || null,
     status: 'completed',
     timestamp: new Date().toISOString()
   };
 }
 
-// Simulate payment status retrieval
+// Simulate payment status retrieval with null handling
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
+  // Validate paymentId
+  if (!paymentId || typeof paymentId !== 'string') {
+    throw new Error('Invalid payment ID');
+  }
   
   await new Promise(resolve => setTimeout(resolve, 50));
   
+  // Return properly initialized payment object
   return {
     id: paymentId,
     status: 'completed',
     amount: 100.00,
     currency: 'USD',
+    customerId: 'CUST-12345',
+    order: null,
     timestamp: new Date().toISOString()
   };
 }
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Payment service running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
