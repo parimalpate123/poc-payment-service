@@ -129,7 +129,7 @@ jobs:
 
       - name: Run Issue Agent Step 1 Analysis
         env:
-          BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-3-5-sonnet-20240620-v1:0' }}
+          BEDROCK_MODEL_ID: ${{ secrets.BEDROCK_MODEL_ID || 'anthropic.claude-sonnet-4-5-20250929-v1:0' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number || github.event.inputs.issue_number }}
           REPOSITORY: ${{ github.repository }}
