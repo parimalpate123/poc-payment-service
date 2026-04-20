@@ -45,8 +45,10 @@ jobs:
           # Note: cache removed because service repos don't have requirements.txt
 
       - name: Install Issue Agent
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: |
-          git clone https://github.com/parimalpate123/issue-fix-action.git /tmp/issue-fix-action
+          git clone https://${PAT_TOKEN}@github.com/parimalpate123/issue-fix-action.git /tmp/issue-fix-action
           cd /tmp/issue-fix-action
           pip install -r requirements.txt
 
@@ -240,6 +242,30 @@ jobs:
           else
             echo "update_issue_comment.py not found, skipping issue comment update"
           fi
+
+      - name: Notify webhook - Job failed
+        if: failure() && steps.extract_incident.outputs.incident_id != ''
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          INCIDENT_ID: ${{ steps.extract_incident.outputs.incident_id }}
+        run: |
+          # Determine which step failed based on output files present
+          if [ ! -f "agent-output/analysis.json" ]; then
+            FAILED_STEP="analysis"
+            USER_ACTION="Check AWS credentials (AWS_ROLE_ARN secret) and Bedrock model access in repository settings. Verify the Issue Agent can clone successfully."
+          elif [ ! -f "agent-output/fix_result.json" ]; then
+            FAILED_STEP="fix_generation"
+            USER_ACTION="The AI could not generate a patch automatically. Review GitHub Issue for complexity — a manual fix may be required."
+          else
+            FAILED_STEP="pr_creation"
+            USER_ACTION="Check GITHUB_TOKEN permissions (needs contents: write, pull-requests: write) and that the branch does not already exist."
+          fi
+          JSON_PAYLOAD=$(python3 -c "import json; print(json.dumps({'action':'remediation_webhook','source':'github_actions','incident_id':'$INCIDENT_ID','status':'failed','failed_step':'$FAILED_STEP','user_action':'$USER_ACTION','message':'Issue Agent job failed at $FAILED_STEP step'}))")
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Token: $WEBHOOK_SECRET" \
+            -d "$JSON_PAYLOAD" 2>/dev/null || true
 
       - name: Upload agent logs
         if: always()
