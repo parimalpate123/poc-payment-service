@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 env:
-  MODEL_ID: us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  MODEL_ID: us.us.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 jobs:
   review:
