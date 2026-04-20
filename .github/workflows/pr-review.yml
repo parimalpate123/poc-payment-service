@@ -10,7 +10,7 @@ permissions:
   pull-requests: write
 
 env:
-  MODEL_ID: us.us.anthropic.claude-sonnet-4-5-20250929-v1:0
+  MODEL_ID: us.anthropic.claude-sonnet-4-5-20250929-v1:0
 
 jobs:
   review:
@@ -228,18 +228,71 @@ jobs:
             -H "X-Webhook-Token: ${{ secrets.WEBHOOK_SECRET }}" \
             -d '{"action":"remediation_webhook","source":"github_actions","incident_id":"${{ steps.info.outputs.incident_id }}","pr_number":${{ steps.info.outputs.pr_number }},"status":"pr_review_started","message":"PR Review Agent is analyzing the pull request"}' || true
 
-      - name: Run PR Review Agent
-        id: review
-        uses: parimalpate123/pr-code-review-action@justbedrock
+      - name: Install PR Review Action
+        env:
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          git clone https://${PAT_TOKEN}@github.com/parimalpate123/pr-code-review-action.git /tmp/pr-code-review-action --branch justbedrock
+          cd /tmp/pr-code-review-action && npm ci --omit=dev
+
+      - name: Get PR branch ref
+        id: get_pr_ref
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          PR_DATA=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.issue.number }}")
+          HEAD_REF=$(echo "$PR_DATA" | jq -r '.head.ref')
+          echo "ref=$HEAD_REF" >> $GITHUB_OUTPUT
+
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
         with:
-          github_token: ${{ secrets.PAT_TOKEN }}
-          aws_access_key_id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws_secret_access_key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-          model: ${{ env.MODEL_ID }}
-          bedrock_region: ${{ secrets.AWS_REGION || 'us-east-1' }}
-          max_tokens: "25000"
-          timeout_minutes: "30"
+          ref: ${{ steps.get_pr_ref.outputs.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.PAT_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare PR context
+        id: prepare
+        run: node /tmp/pr-code-review-action/dist/src/entrypoints/prepare.js
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+      - name: Run PR Agent
+        id: review
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: |
+          node /tmp/pr-code-review-action/dist/src/entrypoints/run-agent.js \
+            --context_file ${{ steps.prepare.outputs.context_file }} \
+            --model ${{ env.MODEL_ID }} \
+            --bedrock_region ${{ secrets.AWS_REGION || 'us-east-1' }} \
+            --max_tokens 25000 \
+            --multi_agent ${{ steps.prepare.outputs.multi_agent }} \
+            --selected_agent ${{ steps.prepare.outputs.selected_agent }} \
+            --selected_model ${{ steps.prepare.outputs.selected_model }} \
+            --autofix_mode ${{ steps.prepare.outputs.autofix_mode }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Update PR comment
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: |
+          node /tmp/pr-code-review-action/dist/src/entrypoints/update-comment.js \
+            --context_file ${{ steps.prepare.outputs.context_file }} \
+            --body_file ${{ steps.review.outputs.body_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
 
       - name: Notify webhook - Review completed
         if: always() && steps.info.outputs.incident_id != ''
