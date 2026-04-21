@@ -11,20 +11,73 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
+// Input validation helper
+function validatePaymentInput(paymentData) {
+  const errors = [];
+  
+  // Validate required fields
+  if (!paymentData.customerId || typeof paymentData.customerId !== 'string') {
+    errors.push('customerId is required and must be a string');
+  }
+  
+  if (!paymentData.amount || typeof paymentData.amount !== 'number' || paymentData.amount <= 0) {
+    errors.push('amount is required and must be a positive number');
+  }
+  
+  if (!paymentData.currency || typeof paymentData.currency !== 'string') {
+    errors.push('currency is required and must be a string');
+  }
+  
+  if (!paymentData.paymentMethod || typeof paymentData.paymentMethod !== 'string') {
+    errors.push('paymentMethod is required and must be a string');
+  }
+  
+  if (!paymentData.order || typeof paymentData.order !== 'object') {
+    errors.push('order is required and must be an object');
+  }
+  
+  // Validate status if provided
+  if (paymentData.status && !['pending', 'processing', 'completed', 'failed'].includes(paymentData.status)) {
+    errors.push('status must be one of: pending, processing, completed, failed');
+  }
+  
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+}
+
 // Payment processing endpoint
 app.post('/api/v1/payments', async (req, res) => {
   try {
-    const { amount, currency, paymentMethod } = req.body;
+    const { customerId, amount, currency, paymentMethod, order, status } = req.body;
     
-    // Validate input
-    if (!amount || !currency || !paymentMethod) {
+    // Validate input with comprehensive validation
+    const validation = validatePaymentInput({
+      customerId,
+      amount,
+      currency,
+      paymentMethod,
+      order,
+      status
+    });
+    
+    if (!validation.isValid) {
       return res.status(400).json({ 
-        error: 'Missing required fields: amount, currency, paymentMethod' 
+        error: 'Validation failed',
+        details: validation.errors
       });
     }
 
-    // Process payment
-    const paymentResult = await processPayment(amount, currency, paymentMethod);
+    // Process payment with validated data
+    const paymentResult = await processPayment({
+      customerId,
+      amount,
+      currency,
+      paymentMethod,
+      order,
+      status: status || 'pending'
+    });
     
     res.status(200).json({
       success: true,
@@ -45,6 +98,15 @@ app.post('/api/v1/payments', async (req, res) => {
 app.get('/api/v1/payments/:paymentId', async (req, res) => {
   try {
     const { paymentId } = req.params;
+    
+    // Validate paymentId
+    if (!paymentId || typeof paymentId !== 'string' || paymentId.trim() === '') {
+      return res.status(400).json({ 
+        error: 'Invalid paymentId',
+        details: ['paymentId must be a non-empty string']
+      });
+    }
+    
     const payment = await getPaymentStatus(paymentId);
     
     if (!payment) {
@@ -71,7 +133,37 @@ app.get('/health', (req, res) => {
 });
 
 // Simulate payment processing
-async function processPayment(amount, currency, paymentMethod) {
+async function processPayment(paymentData) {
+  // Validate payment data object
+  if (!paymentData || typeof paymentData !== 'object') {
+    throw new Error('Invalid payment data: payment object is required');
+  }
+  
+  // Validate required fields exist
+  if (!paymentData.customerId) {
+    throw new Error('Invalid payment data: customerId is required');
+  }
+  
+  if (!paymentData.amount || paymentData.amount <= 0) {
+    throw new Error('Invalid payment data: amount must be a positive number');
+  }
+  
+  if (!paymentData.currency) {
+    throw new Error('Invalid payment data: currency is required');
+  }
+  
+  if (!paymentData.paymentMethod) {
+    throw new Error('Invalid payment data: paymentMethod is required');
+  }
+  
+  if (!paymentData.order) {
+    throw new Error('Invalid payment data: order is required');
+  }
+  
+  if (!paymentData.status) {
+    throw new Error('Invalid payment data: status is required');
+  }
+  
   // Simulate potential issues:
   // - Database connection timeout
   // - External payment gateway timeout
@@ -80,11 +172,18 @@ async function processPayment(amount, currency, paymentMethod) {
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // Safe amount calculation with division by zero protection
+  const calculatedAmount = paymentData.amount && paymentData.amount > 0 
+    ? paymentData.amount 
+    : 0;
+  
   return {
     id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
+    customerId: paymentData.customerId,
+    amount: calculatedAmount,
+    currency: paymentData.currency,
+    paymentMethod: paymentData.paymentMethod,
+    order: paymentData.order,
     status: 'completed',
     timestamp: new Date().toISOString()
   };
@@ -92,6 +191,11 @@ async function processPayment(amount, currency, paymentMethod) {
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
+  // Validate paymentId
+  if (!paymentId || typeof paymentId !== 'string' || paymentId.trim() === '') {
+    throw new Error('Invalid paymentId: must be a non-empty string');
+  }
+  
   // Simulate potential issues:
   // - Database query timeout
   // - Cache miss handling
@@ -108,8 +212,10 @@ async function getPaymentStatus(paymentId) {
 }
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Payment service running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
