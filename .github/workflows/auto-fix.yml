@@ -2,28 +2,33 @@ name: Auto-Fix from Issues
 
 on:
   issues:
-    types: [opened, labeled]
+    types: [labeled]
   workflow_dispatch:
     inputs:
       issue_number:
         description: 'Issue number to process'
         required: true
         type: string
-        
+
 jobs:
   analyze-and-fix:
     runs-on: ubuntu-latest
+    # Concurrency group: only one run per issue at a time.
+    # cancel-in-progress: true ensures if the auto-fix label fires multiple times
+    # (e.g. removed+re-added, or duplicate webhook delivery), only the latest run
+    # executes and all prior queued/running ones for the same issue are cancelled.
+    concurrency:
+      group: auto-fix-issue-${{ github.event.issue.number || github.event.inputs.issue_number }}
+      cancel-in-progress: true
     # Only run if:
-    # 1. Issue was opened AND already has 'auto-fix' label (or created by bot)
-    # 2. Issue was labeled AND the label added is 'auto-fix'
-    # 3. Manual trigger via workflow_dispatch
+    # 1. Issue was labeled AND the label added is 'auto-fix'
+    # 2. Manual trigger via workflow_dispatch
+    # Note: 'opened' trigger removed — issues are always created with labels via API,
+    # which fires both 'opened' (label already present) AND 'labeled' events,
+    # causing two workflow runs per issue. Using only 'labeled' prevents the duplicate.
     if: |
       github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && github.event.action == 'opened' && (
-        contains(github.event.issue.labels.*.name, 'auto-fix') ||
-        github.event.issue.user.type == 'Bot'
-      )) ||
-      (github.event_name == 'issues' && github.event.action == 'labeled' && 
+      (github.event_name == 'issues' && github.event.action == 'labeled' &&
        github.event.label.name == 'auto-fix')
 
     permissions:
