@@ -6,8 +6,17 @@
  */
 
 const express = require('express');
+const serverless = require('serverless-http');
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize logging immediately
+console.log('Payment service initializing...', {
+  timestamp: new Date().toISOString(),
+  nodeVersion: process.version,
+  environment: process.env.NODE_ENV || 'development',
+  isLambda: !!process.env.LAMBDA_TASK_ROOT
+});
 
 app.use(express.json());
 
@@ -107,9 +116,48 @@ async function getPaymentStatus(paymentId) {
   };
 }
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+// Lambda handler export
+let handler;
+try {
+  handler = serverless(app);
+  console.log('Lambda handler created successfully');
+} catch (error) {
+  console.error('Failed to create Lambda handler:', error);
+  throw error;
+}
+
+// Export Lambda handler with logging
+const lambdaHandler = async (event, context) => {
+  console.log('Lambda invocation started', {
+    requestId: context.requestId,
+    functionName: context.functionName,
+    eventType: event.httpMethod || 'unknown',
+    path: event.path || 'unknown'
+  });
+  
+  try {
+    const result = await handler(event, context);
+    console.log('Lambda invocation completed successfully', {
+      requestId: context.requestId,
+      statusCode: result.statusCode
+    });
+    return result;
+  } catch (error) {
+    console.error('Lambda invocation failed', {
+      requestId: context.requestId,
+      error: error.message,
+      stack: error.stack
+    });
+    throw error;
+  }
+};
+
+// Start server only if not in Lambda environment
+if (!process.env.LAMBDA_TASK_ROOT && !process.env.JEST_WORKER_ID) {
+  app.listen(PORT, () => {
+    console.log(`Payment service running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
+module.exports.handler = lambdaHandler;
