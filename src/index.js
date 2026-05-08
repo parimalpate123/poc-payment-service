@@ -16,8 +16,8 @@ app.post('/api/v1/payments', async (req, res) => {
   try {
     const { amount, currency, paymentMethod } = req.body;
     
-    // Validate input
-    if (!amount || !currency || !paymentMethod) {
+    // Validate input - check if fields exist in body (not just falsy)
+    if (amount === undefined || currency === undefined || paymentMethod === undefined) {
       return res.status(400).json({ 
         error: 'Missing required fields: amount, currency, paymentMethod' 
       });
@@ -72,19 +72,53 @@ app.get('/health', (req, res) => {
 
 // Simulate payment processing
 async function processPayment(amount, currency, paymentMethod) {
-  // Simulate potential issues:
-  // - Database connection timeout
-  // - External payment gateway timeout
-  // - Invalid payment method handling
+  // Validate inputs for null/undefined
+  if (amount === null || amount === undefined) {
+    throw new Error('Amount cannot be null or undefined');
+  }
+  
+  if (currency === null || currency === undefined) {
+    throw new Error('Currency cannot be null or undefined');
+  }
+  
+  if (paymentMethod === null || paymentMethod === undefined) {
+    throw new Error('Payment method cannot be null or undefined');
+  }
+  
+  // Validate amount is a valid number
+  const numericAmount = parseFloat(amount);
+  if (isNaN(numericAmount) || numericAmount <= 0) {
+    throw new Error('Amount must be a valid positive number');
+  }
+  
+  // Validate currency format
+  if (typeof currency !== 'string' || currency.trim().length === 0) {
+    throw new Error('Currency must be a non-empty string');
+  }
+  
+  // Validate payment method
+  if (typeof paymentMethod === 'object') {
+    // If paymentMethod is an object, validate required properties
+    if (!paymentMethod.type || paymentMethod.type === null || paymentMethod.type === undefined) {
+      throw new Error('Payment method type is required');
+    }
+  } else if (typeof paymentMethod !== 'string' || paymentMethod.trim().length === 0) {
+    throw new Error('Payment method must be a non-empty string or valid object');
+  }
   
   // Simulate processing delay
   await new Promise(resolve => setTimeout(resolve, 100));
   
+  // Safely construct payment method string
+  const paymentMethodStr = typeof paymentMethod === 'object' 
+    ? (paymentMethod.type || 'unknown')
+    : paymentMethod;
+  
   return {
     id: `PAY-${Date.now()}`,
-    amount,
-    currency,
-    paymentMethod,
+    amount: numericAmount,
+    currency: currency.trim().toUpperCase(),
+    paymentMethod: paymentMethodStr,
     status: 'completed',
     timestamp: new Date().toISOString()
   };
@@ -92,14 +126,27 @@ async function processPayment(amount, currency, paymentMethod) {
 
 // Simulate payment status retrieval
 async function getPaymentStatus(paymentId) {
-  // Simulate potential issues:
-  // - Database query timeout
-  // - Cache miss handling
+  // Validate paymentId
+  if (!paymentId || paymentId === null || paymentId === undefined) {
+    throw new Error('Payment ID cannot be null or undefined');
+  }
+  
+  if (typeof paymentId !== 'string' || paymentId.trim().length === 0) {
+    throw new Error('Payment ID must be a non-empty string');
+  }
   
   await new Promise(resolve => setTimeout(resolve, 50));
   
+  // Simulate payment not found scenario
+  const trimmedPaymentId = paymentId.trim();
+  
+  // Return null for invalid payment IDs to be handled by caller
+  if (trimmedPaymentId.length < 5) {
+    return null;
+  }
+  
   return {
-    id: paymentId,
+    id: trimmedPaymentId,
     status: 'completed',
     amount: 100.00,
     currency: 'USD',
@@ -108,8 +155,10 @@ async function getPaymentStatus(paymentId) {
 }
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Payment service running on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Payment service running on port ${PORT}`);
+  });
+}
 
 module.exports = app;
